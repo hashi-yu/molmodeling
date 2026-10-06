@@ -111,7 +111,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v6</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v7</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -444,7 +444,8 @@ const bondGeo = new THREE.CylinderGeometry(1,1,1,28);
 const Y = V(0,1,0);
 
 const world = new THREE.Group(); scene.add(world);
-let pickables = [], exporting = false, rec = null, spinAngle = 0;
+let pickables = [], exporting = false, rec = null, recording = false, spinAngle = 0;
+const moleculeOnly = () => exporting || recording; // images and videos show the molecule only: no outlines, no axis line
 world.matrixAutoUpdate = false;
 const nodeName = n => (KITS.find(k=>k.shape===n.shape && k.color.toLowerCase()===n.color.toLowerCase())||{label:SHAPES[n.shape]}).label;
 const axisBond = () => settings.rotAxis==='bond' && settings.rotBond!=null ? (bondById(settings.rotBond) || null) : null;
@@ -474,7 +475,7 @@ function rebuild(){
     m.position.copy(P(n)); m.scale.setScalar(n.size); m.quaternion.copy(nodeQuat(n));
     m.userData = {type:'node', id:n.id}; m.renderOrder = n.tex==='glass'?2:0;
     world.add(m); pickables.push(m);
-    const hl = !exporting && !rec && ((sel && sel.type==='node' && sel.id===n.id) ? selMat : (bondFrom===n.id ? fromMat : null));
+    const hl = !moleculeOnly() && ((sel && sel.type==='node' && sel.id===n.id) ? selMat : (bondFrom===n.id ? fromMat : null));
     if(hl){ const o = new THREE.Mesh(geom(n.shape), hl); o.position.copy(m.position); o.quaternion.copy(m.quaternion); o.scale.setScalar(n.size*1.1+0.05); world.add(o); }
   }
   const bm = mat(settings.bondColor, settings.bondTex);
@@ -491,7 +492,7 @@ function rebuild(){
     const offs = order===1?[0]:order===2?[-1,1]:[-1,0,1];
     const rr = order===1? r : r*0.62, gap = order===1?0 : r*1.55;
     const q = new THREE.Quaternion().setFromUnitVectors(Y,d);
-    const isSel = !exporting && !rec && sel && sel.type==='bond' && sel.id===b.id;
+    const isSel = !moleculeOnly() && sel && sel.type==='bond' && sel.id===b.id;
     for(const o of offs){
       const c = new THREE.Mesh(bondGeo, isSel?bsel:bm);
       c.scale.set(rr,len,rr); c.quaternion.copy(q);
@@ -500,7 +501,7 @@ function rebuild(){
     }
   }
   const ab = axisBond();
-  if(ab && settings.showAxis && !exporting && !rec){
+  if(ab && settings.showAxis && !moleculeOnly()){
     const {a,c} = axisInfo(ab);
     let R = 1.5; state.nodes.forEach(n=>R=Math.max(R, P(n).distanceTo(c)+n.size+0.8));
     const g = new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(a,-R), c.clone().addScaledVector(a,R)]);
@@ -573,12 +574,12 @@ function startRec(oneTurn, mimes){
   recCanvas = document.createElement('canvas');
   recCanvas.width = Math.max(2, Math.floor(src.width*k/2)*2); recCanvas.height = Math.max(2, Math.floor(src.height*k/2)*2);
   recCtx = recCanvas.getContext('2d');
-  sel = null; bondFrom = null; rebuild(); renderPanel();
+  recording = true; rebuild();
   renderer.render(scene,camera); copyFrame();
   const [m,ext] = mimes[0];
   let mr;
   try{ mr = new MediaRecorder(recCanvas.captureStream(30), {mimeType:m, videoBitsPerSecond:8e6}); }
-  catch(e){ recCanvas=recCtx=null; return mimes.length>1 ? startRec(oneTurn, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
+  catch(e){ recCanvas=recCtx=null; recording=false; rebuild(); return mimes.length>1 ? startRec(oneTurn, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
   const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false};
   mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
   mr.onerror = () => {};
@@ -595,7 +596,7 @@ function startRec(oneTurn, mimes){
   mr.start(500); syncRecUi();
 }
 function finishRec(r){
-  rec = null; recCanvas = recCtx = null;
+  rec = null; recording = false; recCanvas = recCtx = null;
   if(r.turnLeft!=null) settings.autoRotate = r.prevRotate;
   rebuild(); renderPanel(); syncRecUi();
 }
