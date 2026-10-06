@@ -111,7 +111,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v5</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v6</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -550,40 +550,60 @@ function loop(now){
   requestAnimationFrame(loop);
   const dt = Math.min(0.1, ((now||performance.now()) - lastT)/1000); lastT = now||performance.now();
   if(settings.autoRotate && !drag){ spin(dt); if(rec && rec.turnLeft!=null){ rec.turnLeft -= dt; if(rec.turnLeft<=0) stopRec(); } }
-  controls.update(); renderer.render(scene,camera); if((tagTick++%2)===0) updateTags();
+  controls.update(); renderer.render(scene,camera); if(rec) copyFrame(); if((tagTick++%2)===0) updateTags();
   if(rec) $('#recBanner').textContent = '録画中 ' + fmtTime((performance.now()-rec.t0)/1000);
 }
 const fmtTime = t => Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
 
 /* ---------- recording ---------- */
-function pickMime(){
-  if(!window.MediaRecorder) return null;
-  for(const [m,ext] of [['video/mp4;codecs=avc1','mp4'],['video/mp4','mp4'],['video/webm;codecs=vp9','webm'],['video/webm;codecs=vp8','webm'],['video/webm','webm']])
-    if(MediaRecorder.isTypeSupported(m)) return {m,ext};
-  return null;
+const MIMES = [['video/mp4;codecs=avc1','mp4'],['video/mp4','mp4'],['video/webm;codecs=vp9','webm'],['video/webm;codecs=vp8','webm'],['video/webm','webm']];
+function mimeList(){ return window.MediaRecorder ? MIMES.filter(([m])=>MediaRecorder.isTypeSupported(m)) : []; }
+let recCanvas = null, recCtx = null;
+function copyFrame(){ // paint the stage colour, then the 3D frame, onto an even-sized canvas (H.264 needs even sizes)
+  if(!recCtx) return;
+  recCtx.fillStyle = BG[settings.bg][1]; recCtx.fillRect(0,0,recCanvas.width,recCanvas.height);
+  recCtx.drawImage(renderer.domElement, 0, 0, recCanvas.width, recCanvas.height);
 }
-function startRec(oneTurn){
+function startRec(oneTurn, mimes){
   if(rec) return;
-  const mt = pickMime(), cv = renderer.domElement;
-  if(!mt || !cv.captureStream){ showRecError('このブラウザは録画に対応していません。Chrome・Edge・Firefox・Safari の最新版でお試しください。'); return; }
-  renderer.setClearColor(new THREE.Color(BG[settings.bg][1]), 1); // video has no transparency: paint the stage colour
-  let mr;
-  try{ mr = new MediaRecorder(cv.captureStream(60), {mimeType:mt.m, videoBitsPerSecond:12e6}); }
-  catch(e){ renderer.setClearColor(0x000000,0); showRecError('録画を開始できませんでした。'); return; }
-  const chunks = [];
-  mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
-  mr.onstop = () => { renderer.setClearColor(0x000000,0); showVideo(new Blob(chunks,{type:mt.m.split(';')[0]}), mt.ext); };
-  rec = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate};
-  if(oneTurn){ settings.autoRotate = true; rec.turnLeft = settings.rotPeriod; }
+  mimes = mimes || mimeList();
+  const src = renderer.domElement;
+  if(!mimes.length || !HTMLCanvasElement.prototype.captureStream){ showRecError('このブラウザは録画に対応していません。Chrome・Edge・Firefox・Safari の最新版でお試しください。'); return; }
+  const k = Math.min(1, 1920/src.width);
+  recCanvas = document.createElement('canvas');
+  recCanvas.width = Math.max(2, Math.floor(src.width*k/2)*2); recCanvas.height = Math.max(2, Math.floor(src.height*k/2)*2);
+  recCtx = recCanvas.getContext('2d');
   sel = null; bondFrom = null; rebuild(); renderPanel();
-  mr.start(250); syncRecUi();
+  renderer.render(scene,camera); copyFrame();
+  const [m,ext] = mimes[0];
+  let mr;
+  try{ mr = new MediaRecorder(recCanvas.captureStream(30), {mimeType:m, videoBitsPerSecond:8e6}); }
+  catch(e){ recCanvas=recCtx=null; return mimes.length>1 ? startRec(oneTurn, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
+  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false};
+  mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+  mr.onerror = () => {};
+  mr.onstop = () => {
+    const early = !me.userStopped;
+    if(rec===me) finishRec(me);
+    const blob = new Blob(chunks,{type:m.split(';')[0]});
+    if(early && performance.now()-me.t0 < 1500 && mimes.length>1){ startRec(oneTurn, mimes.slice(1)); return; } // this format failed: try the next one
+    if(!blob.size){ showRecError('録画に失敗しました。別のブラウザ（Chrome など）でお試しください。'); return; }
+    showVideo(blob, ext);
+  };
+  rec = me;
+  if(oneTurn){ settings.autoRotate = true; me.turnLeft = settings.rotPeriod; }
+  mr.start(500); syncRecUi();
+}
+function finishRec(r){
+  rec = null; recCanvas = recCtx = null;
+  if(r.turnLeft!=null) settings.autoRotate = r.prevRotate;
+  rebuild(); renderPanel(); syncRecUi();
 }
 function stopRec(){
   if(!rec) return;
-  const r = rec; rec = null;
-  if(r.turnLeft!=null) settings.autoRotate = r.prevRotate;
-  try{ r.mr.stop(); }catch(e){}
-  rebuild(); renderPanel(); syncRecUi();
+  const r = rec; r.userStopped = true;
+  finishRec(r);
+  try{ r.mr.state!=='inactive' ? r.mr.stop() : r.mr.onstop(); }catch(e){}
 }
 function syncRecUi(){
   $('#recBanner').hidden = !rec;
