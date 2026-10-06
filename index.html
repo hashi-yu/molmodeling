@@ -89,6 +89,10 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
 .seg button.on small{color:var(--accent)}
 .btnrow{display:flex;flex-wrap:wrap;gap:6px}
 .angles{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);line-height:1.7;font-variant-numeric:tabular-nums}
+.subh{margin:6px 0 0;font-size:12.5px;font-weight:500}
+#torsionCtl{display:grid;gap:10px}
+.tag.axial{background:#5b3fb8}
+.tag.flat{background:#6b7280}
 .chiral{font-size:12.5px;line-height:1.6;padding:8px 10px;border-radius:7px;background:var(--accent-soft)}
 .check{display:flex;gap:8px;align-items:center;font-size:12.5px}
 .modal{position:fixed;inset:0;background:rgba(10,12,18,.5);display:grid;place-items:center;padding:16px;z-index:10}
@@ -121,7 +125,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v10</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v11</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -132,6 +136,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <option value="branch">分岐（ネオペンタン型）</option>
         <option value="planar">平面三角（sp²）</option>
         <option value="octa">八面体錯体</option>
+        <option value="axial">軸不斉（ビアリール型）</option>
         <option value="new">新規（原子1つ）</option>
       </select>
       <button class="btn" id="undo" title="元に戻す (Ctrl+Z)">↶ 戻す</button>
@@ -207,6 +212,15 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <div class="field"><label for="bondLenOne">長さ</label><input type="range" id="bondLenOne" min="0.8" max="6" step="0.01"><output id="bondLenOneOut"></output></div>
       <p class="note">長さを変えると、結合の先にある部分がまとめて移動します。</p>
       <div class="btnrow"><button class="btn" id="bondAxis" title="この結合を軸にして分子全体を回転させる">⟳ この結合を回転軸にする</button><button class="btn danger" id="delBond">結合を切る</button></div>
+      <h3 class="subh">ねじれ（結合のまわりで片側だけ回す）</h3>
+      <p class="note" id="torsionInfo"></p>
+      <div id="torsionCtl">
+        <div class="field"><span class="lab">少し回す</span><div class="seg" id="torsionNudge"></div></div>
+        <div class="field"><span class="lab">回す角度</span><div class="seg" id="torsionAngle"></div></div>
+        <div class="field"><label for="torsionDur">時間</label><input type="range" id="torsionDur" min="1" max="10" step="0.5"><output id="torsionDurOut"></output></div>
+        <label class="check"><input type="checkbox" id="torsionFlip"> 反対側を回す</label>
+        <div class="btnrow" style="margin-top:8px"><button class="btn primary" id="torsionPlay">▶ ねじれアニメーション</button><button class="btn rec" id="torsionRec">● アニメーションを録画</button></div>
+      </div>
     </section>
 
     <section class="sec">
@@ -278,7 +292,7 @@ const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.
 
 /* ---------- state ---------- */
 let state = {nodes:[],bonds:[]};
-let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisUpright:true,showAxis:true,recFormat:'video',gifWidth:480};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisUpright:true,showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false};
 let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
 let undoStack = [], redoStack = [];
 let nid = 1;
@@ -361,6 +375,32 @@ function setBondLength(bond, L){
   const dir = P(moving).sub(P(fixed)); const cur = dir.length()||1;
   const delta = dir.normalize().multiplyScalar(L-cur);
   set.forEach(id => { const n=nodeById(id); setP(n,P(n).add(delta)); });
+}
+function isRingBond(bond){ const s=new Set([bond.a]), q=[bond.a];
+  while(q.length){ const c=q.shift(); for(const b of bondsOf(c)){ if(b===bond) continue; const o=b.a===c?b.b:b.a; if(o===bond.b) return true; if(!s.has(o)){s.add(o);q.push(o);} } } return false; }
+function torsionSide(bond){ // the part that turns: the smaller side unless flipped
+  if(isRingBond(bond)) return null;
+  const sa=sideOf(bond,bond.a,bond.b), sb=sideOf(bond,bond.b,bond.a);
+  let useB = sb.size<=sa.size; if(settings.torsionFlip) useB=!useB;
+  return useB ? {fix:bond.a, mov:bond.b, set:sb} : {fix:bond.b, mov:bond.a, set:sa};
+}
+function rotateSide(bond, ang){
+  const t = torsionSide(bond); if(!t) return;
+  const A=P(nodeById(t.fix)), ax=P(nodeById(t.mov)).sub(A).normalize();
+  t.set.forEach(id=>{ const n=nodeById(id); setP(n, P(n).sub(A).applyAxisAngle(ax, ang).add(A)); });
+}
+function dihedral(p0,p1,p2,p3){
+  const b1=p2.clone().sub(p1).normalize(), b0=p0.clone().sub(p1), b2=p3.clone().sub(p2);
+  const v=b0.sub(b1.clone().multiplyScalar(b0.dot(b1))), w=b2.sub(b1.clone().multiplyScalar(b2.dot(b1)));
+  return THREE.MathUtils.radToDeg(Math.atan2(new THREE.Vector3().crossVectors(b1,v).dot(w), v.dot(w)));
+}
+function axialInfo(bond){ // two different groups on each end -> chiral axis unless the ends lie in one plane
+  const ends = [[bond.a,bond.b],[bond.b,bond.a]].map(([x,y])=>{
+    const subs = bondsOf(x).filter(b=>b!==bond).map(b=>({id:b.a===x?b.b:b.a, s:b.order+':'+sig(b.a===x?b.b:b.a,x,0)}));
+    return subs.length===2 && subs[0].s!==subs[1].s ? subs.sort((p,q)=>p.s<q.s?-1:1) : null; });
+  if(!ends[0] || !ends[1]) return null;
+  const phi = dihedral(P(nodeById(ends[0][0].id)), P(nodeById(bond.a)), P(nodeById(bond.b)), P(nodeById(ends[1][0].id)));
+  return {phi, planar: Math.abs(Math.sin(THREE.MathUtils.degToRad(phi))) < 0.05};
 }
 function tidy(rootId){
   const L = settings.bondLen, root = nodeById(rootId); if(!root) return;
@@ -565,6 +605,11 @@ function updateTags(){
     const v=W(P(n)).add(camera.up.clone().multiplyScalar(n.size+0.35)).project(camera);
     const el=document.createElement('div'); el.className='tag'; el.textContent='キラル中心';
     el.style.left=((v.x+1)/2*w)+'px'; el.style.top=((1-v.y)/2*h)+'px'; tagLayer.appendChild(el); }
+  for(const b of state.bonds){ const ai = axialInfo(b); if(!ai) continue;
+    const m = W(P(nodeById(b.a)).add(P(nodeById(b.b))).multiplyScalar(0.5)).add(camera.up.clone().multiplyScalar(0.55)).project(camera);
+    const el=document.createElement('div'); el.className='tag '+(ai.planar?'flat':'axial');
+    el.textContent = ai.planar ? '平面（アキラル）' : `軸性キラル ${ai.phi>0?'+':'−'}${Math.abs(ai.phi).toFixed(0)}°`;
+    el.style.left=((m.x+1)/2*w)+'px'; el.style.top=((1-m.y)/2*h)+'px'; tagLayer.appendChild(el); }
 }
 let tagTick=0;
 let lastT = performance.now();
@@ -605,7 +650,7 @@ function loop(now){
   if(gifBusy){ lastT = now||performance.now(); return; } // the GIF writer drives rendering itself
   const dt = Math.min(0.1, ((now||performance.now()) - lastT)/1000); lastT = now||performance.now();
   if(settings.autoRotate && !drag){ spin(dt); if(rec && rec.turnLeft!=null){ rec.turnLeft -= dt; if(rec.turnLeft<=0) stopRec(); } }
-  runTurns(dt); controls.update(); renderer.render(scene,camera); if(rec) copyFrame(); if((tagTick++%2)===0) updateTags();
+  runAnim(dt); runTurns(dt); controls.update(); renderer.render(scene,camera); if(rec) copyFrame(); if((tagTick++%2)===0) updateTags();
   if(rec) $('#recBanner').textContent = '録画中 ' + fmtTime((performance.now()-rec.t0)/1000);
 }
 const fmtTime = t => Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
@@ -630,6 +675,35 @@ function padBox(b, src){ // margin = 8% of the larger side; clamp; even width/he
   let w=Math.min(src.width,Math.ceil(b.x1+m))-x, h=Math.min(src.height,Math.ceil(b.y1+m))-y;
   w-=w%2; h-=h%2; return {x,y,w:Math.max(2,w),h:Math.max(2,h)};
 }
+let anim = null;
+function startTorsion(bond, deg, dur, onDone){
+  if(!torsionSide(bond)) return;
+  if(!anim) pushHistory();
+  anim = {bond, left:THREE.MathUtils.degToRad(deg), speed:Math.abs(THREE.MathUtils.degToRad(deg))/dur, onDone};
+}
+function runAnim(dt){
+  if(!anim) return;
+  const d = Math.sign(anim.left) * Math.min(Math.abs(anim.left), anim.speed*dt);
+  rotateSide(anim.bond, d); anim.left -= d; rebuild();
+  if(Math.abs(anim.left) < 1e-9){ const cb = anim.onDone; anim = null; save(); renderPanel(); cb && cb(); }
+}
+/* an export plan: how to step through the motion, and how to put things back */
+function turnPlan(){ const T=settings.rotPeriod; return { secs:T, loop:true, advance:f=>spin(T*f),
+  save:()=>({cp:camera.position.clone(), cu:camera.up.clone(), sa:spinAngle}),
+  restore:s=>{ camera.position.copy(s.cp); camera.up.copy(s.cu); camera.lookAt(controls.target); spinAngle=s.sa; applyWorld(); } }; }
+function torsionPlan(bond){ const tot=THREE.MathUtils.degToRad(settings.torsionAngle); return { secs:settings.torsionDur, loop:settings.torsionAngle===360,
+  advance:f=>{ rotateSide(bond, tot*f); rebuild(); },
+  save:()=>state.nodes.map(n=>[n.x,n.y,n.z]),
+  restore:s=>{ state.nodes.forEach((n,i)=>{ [n.x,n.y,n.z]=s[i]; }); rebuild(); } }; }
+function measurePlan(plan, S){ // union of the molecule's on-screen area over the whole motion; leaves everything as it was
+  const src=renderer.domElement, keep=plan.save(); let u=null;
+  for(let i=0;i<=S;i++){
+    renderer.render(scene,camera); const b=alphaBox(src,0.5);
+    if(b) u = u ? {x0:Math.min(u.x0,b.x0),y0:Math.min(u.y0,b.y0),x1:Math.max(u.x1,b.x1),y1:Math.max(u.y1,b.y1)} : b;
+    if(i<S) plan.advance(1/S);
+  }
+  plan.restore(keep); return padBox(u, src);
+}
 function measureTurn(samples){ // union of the molecule's on-screen area over one full turn; leaves the view as it was
   const src=renderer.domElement, cp=camera.position.clone(), cu=camera.up.clone(), sa=spinAngle;
   let u=null;
@@ -647,13 +721,15 @@ function copyFrame(){ // paint the stage colour, then the 3D frame, onto an even
   recCtx.fillStyle = BG[settings.bg][1]; recCtx.fillRect(0,0,recCanvas.width,recCanvas.height);
   const b = recBox; recCtx.drawImage(renderer.domElement, b.x, b.y, b.w, b.h, 0, 0, recCanvas.width, recCanvas.height);
 }
-function startRec(oneTurn, mimes){
+function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsion' (selected bond)
   if(rec) return;
   mimes = mimes || mimeList();
   const src = renderer.domElement;
   if(!mimes.length || !HTMLCanvasElement.prototype.captureStream){ showRecError('このブラウザは録画に対応していません。Chrome・Edge・Firefox・Safari の最新版でお試しください。'); return; }
   recording = true; rebuild();
-  recBox = measureTurn((oneTurn || settings.autoRotate) ? 24 : 1); // frame fits the molecule over the whole turn
+  const tb = mode==='torsion' ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
+  if(mode==='torsion' && !tb){ recording=false; rebuild(); return; }
+  recBox = tb ? measurePlan(torsionPlan(tb), 16) : measureTurn((mode==='turn' || settings.autoRotate) ? 24 : 1); // frame fits the molecule over the whole motion
   const k = Math.min(1, 1920/recBox.w);
   recCanvas = document.createElement('canvas');
   recCanvas.width = Math.max(2, Math.floor(recBox.w*k/2)*2); recCanvas.height = Math.max(2, Math.floor(recBox.h*k/2)*2);
@@ -662,25 +738,27 @@ function startRec(oneTurn, mimes){
   const [m,ext] = mimes[0];
   let mr;
   try{ mr = new MediaRecorder(recCanvas.captureStream(30), {mimeType:m, videoBitsPerSecond:8e6}); }
-  catch(e){ recCanvas=recCtx=null; recording=false; rebuild(); return mimes.length>1 ? startRec(oneTurn, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
-  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false};
+  catch(e){ recCanvas=recCtx=null; recording=false; rebuild(); return mimes.length>1 ? startRec(mode, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
+  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false, snap: tb ? torsionPlan(tb).save() : null};
   mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
   mr.onerror = () => {};
   mr.onstop = () => {
     const early = !me.userStopped;
     if(rec===me) finishRec(me);
     const blob = new Blob(chunks,{type:m.split(';')[0]});
-    if(early && performance.now()-me.t0 < 1500 && mimes.length>1){ startRec(oneTurn, mimes.slice(1)); return; } // this format failed: try the next one
+    if(early && performance.now()-me.t0 < 1500 && mimes.length>1){ if(me.snap){ anim=null; torsionPlan(tb).restore(me.snap); } startRec(mode, mimes.slice(1)); return; } // this format failed: try the next one
     if(!blob.size){ showRecError('録画に失敗しました。別のブラウザ（Chrome など）でお試しください。'); return; }
     showVideo(blob, ext);
   };
   rec = me;
-  if(oneTurn){ settings.autoRotate = true; me.turnLeft = settings.rotPeriod; }
+  if(mode==='turn'){ settings.autoRotate = true; me.turnLeft = settings.rotPeriod; }
+  if(tb){ me.prevRotate = settings.autoRotate; settings.autoRotate = false; me.turnLeft = null; me.restoreRotate = true;
+    setTimeout(()=>{ if(rec!==me) return; startTorsion(tb, settings.torsionAngle, settings.torsionDur, ()=>setTimeout(()=>{ if(rec===me) stopRec(); }, 700)); }, 500); }
   mr.start(500); syncRecUi();
 }
 function finishRec(r){
   rec = null; recording = false; recCanvas = recCtx = null;
-  if(r.turnLeft!=null) settings.autoRotate = r.prevRotate;
+  if(r.turnLeft!=null || r.restoreRotate) settings.autoRotate = r.prevRotate;
   rebuild(); renderPanel(); syncRecUi();
 }
 function stopRec(){
@@ -721,8 +799,12 @@ function showVideo(blob, ext){
     <div class="msg" id="vidMsg"></div>`);
   $('#vidSave').onclick = ()=>saveFile(name, blob, $('#vidMsg'));
 }
-$('#recBtn').onclick = ()=> gifBusy ? null : rec ? stopRec() : settings.recFormat==='gif' ? makeGif() : startRec(false);
-$('#recTurn').onclick = ()=> settings.recFormat==='gif' ? makeGif() : startRec(true);
+$('#recBtn').onclick = ()=> gifBusy ? null : rec ? stopRec() : settings.recFormat==='gif' ? makeGif('turn') : startRec(false);
+$('#recTurn').onclick = ()=> settings.recFormat==='gif' ? makeGif('turn') : startRec('turn');
+$('#torsionRec').onclick = ()=> { if(anim||rec||gifBusy) return; settings.recFormat==='gif' ? makeGif('torsion') : startRec('torsion'); };
+$('#torsionPlay').onclick = ()=> { if(anim||gifBusy) return; startTorsion(bondById(sel.id), settings.torsionAngle, settings.torsionDur); };
+$('#torsionDur').addEventListener('input', e=>{ settings.torsionDur=parseFloat(e.target.value); $('#torsionDurOut').textContent=settings.torsionDur+' 秒'; save(); });
+$('#torsionFlip').onchange = e=>{ settings.torsionFlip=e.target.checked; save(); };
 
 /* ---------- transparent GIF: one exact turn, rendered frame by frame ---------- */
 function medianCut(px, k){ // px: flat [r,g,b,...]; returns up to k colours
@@ -764,26 +846,30 @@ function gifFrame(idx, w, h, delay){
   return new Uint8Array(parts);
 }
 const nextFrame = () => new Promise(r=>requestAnimationFrame(()=>r()));
-async function makeGif(){
-  if(gifBusy || rec) return;
+async function makeGif(kind){
+  if(gifBusy || rec || anim) return;
+  const tb = kind==='torsion' ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
+  if(kind==='torsion' && !tb) return;
+  const plan = tb ? torsionPlan(tb) : turnPlan();
   gifBusy = true; recording = true; rebuild(); syncRecUi();
   const banner = $('#recBanner'); banner.hidden = false;
   try{
-    const src = renderer.domElement, box = measureTurn(24);
+    if(tb) pushHistory();
+    const src = renderer.domElement, box = measurePlan(plan, tb ? 16 : 24);
     const W = Math.min(settings.gifWidth, box.w), H = Math.max(2, Math.round(box.h*W/box.w));
     const cv = document.createElement('canvas'); cv.width=W; cv.height=H; const cx = cv.getContext('2d',{willReadFrequently:true});
     const matte = new THREE.Color(BG[settings.bg][1]); const mr=matte.r*255, mg=matte.g*255, mb=matte.b*255;
-    const delay = 6, N = Math.max(8, Math.round(settings.rotPeriod*100/delay)); // 6/100 s per frame
-    const step = settings.rotPeriod / N;
+    const delay = 6, N = Math.max(8, Math.round(plan.secs*100/delay)); // 6/100 s per frame
     const grab = () => { renderer.render(scene,camera); cx.clearRect(0,0,W,H); cx.drawImage(src,box.x,box.y,box.w,box.h,0,0,W,H); return cx.getImageData(0,0,W,H).data; };
     const blend = (d,i) => { const a=d[i+3]/255; return [d[i]*a+mr*(1-a), d[i+1]*a+mg*(1-a), d[i+2]*a+mb*(1-a)]; };
     // pass 1: sample colours from frames spread round the turn
-    const S = 16, samples = [];
-    for(let f=0; f<S; f++){
+    const S = 16, samples = [], keep = plan.save();
+    for(let f=0; f<=S; f++){
       const d = grab(), strideP = Math.max(1, Math.floor(W*H/4000));
       for(let p=0; p<W*H; p+=strideP){ const i=p*4; if(d[i+3]<40) continue; samples.push(...blend(d,i)); }
-      spin(settings.rotPeriod/S); banner.textContent = '透過GIFを作成中 準備'; await nextFrame();
+      if(f<S) plan.advance(1/S); banner.textContent = '透過GIFを作成中 準備'; await nextFrame();
     }
+    plan.restore(keep);
     const pal = samples.length ? medianCut(samples, 255) : [[0,0,0]];
     const cache = new Int16Array(32768).fill(-1);
     const nearest = (r,g,b) => { const key=((r>>3)<<10)|((g>>3)<<5)|(b>>3); let v=cache[key]; if(v>=0) return v;
@@ -794,20 +880,21 @@ async function makeGif(){
     head.push(0x21,0xFF,11,...[...'NETSCAPE2.0'].map(c=>c.charCodeAt(0)),3,1,0,0,0);
     const parts = [new Uint8Array(head)];
     const idx = new Uint8Array(W*H);
-    for(let f=0; f<N; f++){
+    const total = plan.loop ? N : N+1; // a one-way motion shows both end states
+    for(let f=0; f<total; f++){
       const d = grab();
       for(let p=0,i=0; p<W*H; p++,i+=4){
         if(d[i+3]<40){ idx[p]=0; continue; }
         const [r,g,b] = blend(d,i); idx[p] = nearest(r|0,g|0,b|0);
       }
-      parts.push(gifFrame(idx, W, H, delay));
-      spin(step);
-      if(f%2===0){ banner.textContent = `透過GIFを作成中 ${Math.round((f+1)/N*100)}%`; await nextFrame(); }
+      parts.push(gifFrame(idx, W, H, (!plan.loop && (f===0 || f===total-1)) ? 90 : delay)); // hold the two enantiomers
+      if(f<total-1 || plan.loop) plan.advance(1/N); // a loop ends back where it started
+      if(f%2===0){ banner.textContent = `透過GIFを作成中 ${Math.round((f+1)/total*100)}%`; await nextFrame(); }
     }
     parts.push(new Uint8Array([0x3B]));
     showGif(new Blob(parts,{type:'image/gif'}));
   }catch(e){ showRecError('透過GIFを作れませんでした。GIFの幅を小さくして試してください。'); }
-  finally{ gifBusy = false; recording = false; banner.hidden = true; rebuild(); syncRecUi(); }
+  finally{ gifBusy = false; recording = false; banner.hidden = true; save(); rebuild(); renderPanel(); syncRecUi(); }
 }
 let lastGifUrl = null;
 function showGif(blob){
@@ -917,6 +1004,17 @@ function renderPanel(){
     segRow($('#bondOrder'), [[1,'単結合'],[2,'二重'],[3,'三重']], b.order||1, o=>mutate(()=>b.order=o));
     const L = P(nodeById(b.a)).distanceTo(P(nodeById(b.b)));
     $('#bondLenOne').value = L; $('#bondLenOneOut').textContent = L.toFixed(2);
+    const ts = torsionSide(b), ai = axialInfo(b);
+    $('#torsionCtl').hidden = !ts;
+    $('#torsionInfo').innerHTML = !ts ? '環の中の結合はねじれません。'
+      : `${nodeName(nodeById(ts.mov))}側の ${ts.set.size} 個の形が回ります。` + (ai ? (ai.planar
+        ? ' 今は両端の置換基が同じ平面にあり、<b>アキラル</b>です。'
+        : ` 今のねじれ角は <b>${ai.phi>0?'+':'−'}${Math.abs(ai.phi).toFixed(0)}°</b>（軸性キラル）。180°回すと鏡像体（もう一方のエナンチオマー）になり、途中で一度平面（アキラル）を通ります。`) : '');
+    segRow($('#torsionNudge'), [[-90,'−90°'],[-15,'−15°'],[15,'+15°'],[90,'+90°']], null, d=>{ if(!anim) startTorsion(b, d, Math.abs(d)/90*0.8); });
+    segRow($('#torsionAngle'), [[180,'180°'],[360,'360°']], settings.torsionAngle, d=>{ settings.torsionAngle=d; save(); renderPanel(); });
+    $('#torsionDur').value = settings.torsionDur; $('#torsionDurOut').textContent = settings.torsionDur+' 秒';
+    $('#torsionFlip').checked = settings.torsionFlip;
+    $('#torsionRec').textContent = settings.recFormat==='gif' ? '● 透過GIFに書き出す' : '● アニメーションを録画';
   }
   $('#bondLen').value = settings.bondLen; $('#bondLenOut').textContent = settings.bondLen.toFixed(2);
   $('#bondRad').value = settings.bondRad; $('#bondRadOut').textContent = settings.bondRad.toFixed(3);
@@ -1067,7 +1165,9 @@ $('#mirrorCopy').onclick = ()=>{
   });
   fitView();
 };
-$('#sample').onchange = e=>{ const v=e.target.value; e.target.value=''; if(!v) return; pushHistory(); loadSample(v); sel=null; changed(); fitView(); };
+$('#sample').onchange = e=>{ const v=e.target.value; e.target.value=''; if(!v) return; pushHistory(); const r=loadSample(v); sel = r && r.selBond ? {type:'bond',id:r.selBond} : null; changed();
+  if(r && r.view){ camera.up.set(0,1,0); camera.position.copy(controls.target).add(V(...r.view)); camera.lookAt(controls.target); }
+  fitView(); };
 
 document.addEventListener('keydown', e=>{
   if(e.target.closest('input,textarea,select')) return;
@@ -1151,6 +1251,14 @@ function loadSample(v){
   }
   if(v==='branch'){ for(let i=0;i<4;i++){ const m=addBonded(c,kit('原子'),'auto'); for(let j=0;j<3;j++) addBonded(m,kit('球'),'#c9ccd1').size=0.3; } }
   if(v==='planar'){ c.hyb='sp2'; ['球','四面体','立方体'].forEach(l=>addBonded(c,kit(l),'auto')); }
+  if(v==='axial'){ // biaryl-like: two sp2 ends, planes at 90 deg, two different groups on each end
+    const L=settings.bondLen; c.x=-L/2; c.hyb='sp2';
+    const d = makeNode(kit('原子'),'auto',V(L/2,0,0)); d.hyb='sp2'; addBond(c.id,d.id);
+    const put=(p,l,dir)=>{ const n=makeNode(kit(l),'auto',P(p).add(dir.normalize().multiplyScalar(L))); addBond(p.id,n.id); };
+    put(c,'四面体',V(-0.5,0.866,0)); put(c,'球',V(-0.5,-0.866,0));
+    put(d,'立方体',V(0.5,0,0.866)); put(d,'八面体',V(0.5,0,-0.866));
+    return {selBond: state.bonds[0].id, view:[0.45,0.5,1]};
+  }
   if(v==='octa'){ c.hyb='oct'; c.color='#7a4cd0'; c.tex='metal'; c.size=0.55; ['球','球','八面体','八面体','立方体','四面体'].forEach(l=>addBonded(c,kit(l),'auto')); }
 }
 
