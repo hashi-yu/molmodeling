@@ -135,7 +135,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v18</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v19</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -228,7 +228,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <div class="field"><span class="lab">少し回す</span><div class="seg" id="torsionNudge"></div></div>
         <div class="field"><label for="torsionDeg">回す角度</label><div class="seg"><input type="number" class="num" id="torsionDeg" min="-720" max="720" step="1"><span class="unit">°</span><span id="torsionAngle" class="seg" style="grid-column:auto"></span></div></div>
         <div class="field" id="dihedralRow"><label for="dihedralTo">ねじれ角を</label><div class="seg"><input type="number" class="num" id="dihedralTo" min="-180" max="180" step="1"><span class="unit">° にする</span><button id="dihedralGo">実行</button></div></div>
-        <div class="field"><label for="torsionDur">時間</label><input type="range" id="torsionDur" min="1" max="10" step="0.5"><output id="torsionDurOut"></output></div>
+        <div class="field"><label for="torsionDur">時間</label><input type="range" id="torsionDur" min="0" max="12" step="1" aria-label="ねじれの時間"><output id="torsionDurOut"></output></div>
         <label class="check"><input type="checkbox" id="torsionFlip"> 反対側を回す</label>
         <div class="field"><span class="lab">繰り返し</span><div class="seg" id="torsionLoop"></div></div>
         <p class="note" id="torsionLoopNote"></p>
@@ -992,7 +992,9 @@ $('#recBtn').onclick = ()=> gifBusy ? null : rec ? stopRec() : settings.recForma
 $('#recTurn').onclick = ()=> settings.recFormat==='gif' ? makeGif('turn') : recordPlan('turn');
 $('#torsionRec').onclick = ()=> { if(anim||rec||gifBusy) return; settings.recFormat==='gif' ? makeGif('torsion') : recordPlan('torsion'); };
 $('#torsionPlay').onclick = ()=> { if(anim||gifBusy||seqLive) return; playTorsion(bondById(sel.id)); };
-$('#torsionDur').addEventListener('input', e=>{ settings.torsionDur=parseFloat(e.target.value); $('#torsionDurOut').textContent=settings.torsionDur+' 秒'; save(); });
+const TORSION_DURS = [0.3,0.5,0.75,1,1.5,2,2.5,3,4,5,6,8,10]; // the slider steps through these (seconds)
+const durIndex = v => TORSION_DURS.reduce((bi,x,i)=>Math.abs(x-v)<Math.abs(TORSION_DURS[bi]-v)?i:bi, 0);
+$('#torsionDur').addEventListener('input', e=>{ settings.torsionDur=TORSION_DURS[+e.target.value]; $('#torsionDurOut').textContent=settings.torsionDur+' 秒'; save(); });
 $('#torsionFlip').onchange = e=>{ settings.torsionFlip=e.target.checked; save(); };
 $('#torsionDeg').addEventListener('change', e=>{ const v=parseFloat(e.target.value); if(isFinite(v) && v!==0){ settings.torsionAngle=Math.max(-720,Math.min(720,v)); save(); renderPanel(); } });
 $('#dihedralGo').onclick = ()=>{ // turn by the difference between the current and the wanted twist angle
@@ -1063,7 +1065,7 @@ async function makeGif(kind){
     const W = Math.min(settings.gifWidth, box.w), H = Math.max(2, Math.round(box.h*W/box.w));
     const cv = document.createElement('canvas'); cv.width=W; cv.height=H; const cx = cv.getContext('2d',{willReadFrequently:true});
     const matte = new THREE.Color(BG[settings.bg][1]); const mr=matte.r*255, mg=matte.g*255, mb=matte.b*255;
-    const delay = 6, N = Math.max(8, Math.round(plan.secs*100/delay)); // 6/100 s per frame
+    const delay = plan.secs < 1.2 ? 3 : 6, N = Math.max(4, Math.round(plan.secs*100/delay)); // 6/100 s per frame; 3/100 s for short motions so they keep their length
     const grab = () => { renderer.render(scene,camera); cx.clearRect(0,0,W,H); cx.drawImage(src,box.x,box.y,box.w,box.h,0,0,W,H); return cx.getImageData(0,0,W,H).data; };
     const blend = (d,i) => { const a=d[i+3]/255; return [d[i]*a+mr*(1-a), d[i+1]*a+mg*(1-a), d[i+2]*a+mb*(1-a)]; };
     // pass 1: sample colours from frames spread round the turn
@@ -1219,7 +1221,7 @@ function renderPanel(){
     if(document.activeElement!==$('#torsionDeg')) $('#torsionDeg').value = settings.torsionAngle;
     $('#dihedralRow').hidden = !ai;
     if(ai && document.activeElement!==$('#dihedralTo') && $('#dihedralTo').value==='') $('#dihedralTo').value = Math.round(-ai.phi);
-    $('#torsionDur').value = settings.torsionDur; $('#torsionDurOut').textContent = settings.torsionDur+' 秒';
+    $('#torsionDur').value = durIndex(settings.torsionDur); $('#torsionDurOut').textContent = settings.torsionDur+' 秒';
     $('#torsionFlip').checked = settings.torsionFlip;
     segRow($('#torsionLoop'), [['none','しない'],['pingpong','往復'],['round','1周']], settings.torsionLoop||'none', k=>{ settings.torsionLoop=k; save(); renderPanel(); });
     $('#torsionLoopNote').textContent = {none:'前後に少し止まる時間が入ります（はじめと終わりの形を見せる用）。', pingpong:`${Math.abs(settings.torsionAngle)}° ねじって同じ道を戻ります。一定の速さで動き続け、始めと終わりがつながるので、繰り返し再生できます。`, round:'同じ向きに 360° ねじって元の形に戻ります。止まらずに始めと終わりがつながるので、繰り返し再生できます。'}[settings.torsionLoop||'none'];
