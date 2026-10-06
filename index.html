@@ -135,7 +135,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v15</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v16</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -230,6 +230,8 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <div class="field" id="dihedralRow"><label for="dihedralTo">ねじれ角を</label><div class="seg"><input type="number" class="num" id="dihedralTo" min="-180" max="180" step="1"><span class="unit">° にする</span><button id="dihedralGo">実行</button></div></div>
         <div class="field"><label for="torsionDur">時間</label><input type="range" id="torsionDur" min="1" max="10" step="0.5"><output id="torsionDurOut"></output></div>
         <label class="check"><input type="checkbox" id="torsionFlip"> 反対側を回す</label>
+        <div class="field"><span class="lab">繰り返し</span><div class="seg" id="torsionLoop"></div></div>
+        <p class="note" id="torsionLoopNote"></p>
         <div class="btnrow" style="margin-top:8px"><button class="btn primary" id="torsionPlay">▶ ねじれアニメーション</button><button class="btn rec" id="torsionRec">● アニメーションを録画</button></div>
       </div>
       <h3 class="subh">連続アニメーション（この結合で）</h3>
@@ -313,7 +315,7 @@ const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.
 
 /* ---------- state ---------- */
 let state = {nodes:[],bonds:[]};
-let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisDir:'v',perpAxis:'y',showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false,seq:null};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisDir:'v',perpAxis:'y',showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false,torsionLoop:'none',seq:null};
 const SEQ_DEFAULT = [{k:'spin',deg:360,sec:4},{k:'twist',deg:180,sec:3},{k:'perp',deg:360,sec:4,ax:'y'}];
 let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
 let undoStack = [], redoStack = [];
@@ -738,6 +740,12 @@ function runAnim(dt){
     if(spinAnim.k==='tumble'){ tumbleBond(axisBond(), perpAxis(), st); tumbleAngle += st; } else { spinBond(axisBond(), st); spinAngle += st; } spinAnim.left -= st;
     if(Math.abs(spinAnim.left)<1e-9){ spinAnim=null; } showSpinNow(); }
   if(!anim) return;
+  if(anim.motion){ // a timed twist: follow the motion curve
+    anim.t += dt; const u = Math.min(1, anim.t/anim.motion.secs), a = anim.motion.at(u);
+    rotateSide(anim.bond, a-anim.cur); anim.cur = a; rebuild();
+    if(u>=1){ const cb = anim.onDone; anim = null; save(); renderPanel(); cb && cb(); }
+    return;
+  }
   const d = Math.sign(anim.left) * Math.min(Math.abs(anim.left), anim.speed*dt);
   rotateSide(anim.bond, d); anim.left -= d; rebuild();
   if(Math.abs(anim.left) < 1e-9){ const cb = anim.onDone; anim = null; save(); renderPanel(); cb && cb(); }
@@ -774,10 +782,21 @@ function startSeq(bond, onDone){
   pushHistory(); seqSnap = poseSave(); spinAnim = null;
   seqLive = {run:seqRunner(bond, seqSteps()), onDone};
 }
-function torsionPlan(bond){ const tot=THREE.MathUtils.degToRad(settings.torsionAngle); return { secs:settings.torsionDur, loop: settings.torsionAngle!==0 && settings.torsionAngle%360===0,
-  advance:f=>{ rotateSide(bond, tot*f); rebuild(); },
+function torsionMotion(){ // how the twist plays: secs, the angle at progress u (0..1), and whether it ends where it began
+  const deg = settings.torsionAngle, tot = THREE.MathUtils.degToRad(deg), dur = settings.torsionDur, mode = settings.torsionLoop;
+  if(mode==='pingpong') return {secs:2*dur, loop:true, at:u=>tot*(1-Math.cos(2*Math.PI*u))/2}; // there and back, easing through both turns so the seam is smooth
+  if(mode==='round'){ const full = 2*Math.PI*(Math.sign(deg)||1); return {secs:dur*(deg ? 360/Math.abs(deg) : 1), loop:true, at:u=>full*u}; } // keep going the same way until it is back
+  return {secs:dur, loop: deg!==0 && deg%360===0, at:u=>tot*u};
+}
+function torsionPlan(bond){ const mo = torsionMotion(); let u = 0, cur = 0;
+  return { secs:mo.secs, loop:mo.loop,
+  advance:f=>{ u += f; const a = mo.at(Math.min(1,u)); rotateSide(bond, a-cur); cur = a; rebuild(); },
   save:()=>state.nodes.map(n=>[n.x,n.y,n.z]),
-  restore:s=>{ state.nodes.forEach((n,i)=>{ [n.x,n.y,n.z]=s[i]; }); rebuild(); } }; }
+  restore:s=>{ state.nodes.forEach((n,i)=>{ [n.x,n.y,n.z]=s[i]; }); u = 0; cur = 0; rebuild(); } }; }
+function playTorsion(bond, onDone){ // play the twist as set in the panel (same motion as the video and GIF)
+  if(!torsionSide(bond) || anim) return;
+  pushHistory(); anim = {bond, motion:torsionMotion(), t:0, cur:0, onDone};
+}
 function measurePlan(plan, S){ // union of the molecule's on-screen area over the whole motion; leaves everything as it was
   const src=renderer.domElement, keep=plan.save(); let u=null;
   for(let i=0;i<=S;i++){
@@ -837,8 +856,12 @@ function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsi
   rec = me;
   if(mode==='turn'){ settings.autoRotate = true; me.turnLeft = settings.rotPeriod; }
   if(tb){ me.prevRotate = settings.autoRotate; settings.autoRotate = false; me.turnLeft = null; me.restoreRotate = true;
-    const done = ()=>setTimeout(()=>{ if(rec===me) stopRec(); }, 700);
-    setTimeout(()=>{ if(rec!==me) return; mode==='seq' ? startSeq(tb, done) : startTorsion(tb, settings.torsionAngle, settings.torsionDur, done); }, 500); }
+    const seamless = mode==='torsion' && torsionMotion().loop; // a loop video starts and ends on the motion itself, with no still frames
+    const done = ()=>setTimeout(()=>{ if(rec===me) stopRec(); }, seamless ? 0 : 700);
+    const go = ()=>{ if(rec!==me) return; mode==='seq' ? startSeq(tb, done) : playTorsion(tb, done); };
+    mr.start(seamless ? 100 : 500); syncRecUi();
+    if(seamless) go(); else setTimeout(go, 500);
+    return; }
   mr.start(500); syncRecUi();
 }
 function finishRec(r){
@@ -887,7 +910,7 @@ function showVideo(blob, ext){
 $('#recBtn').onclick = ()=> gifBusy ? null : rec ? stopRec() : settings.recFormat==='gif' ? makeGif('turn') : startRec(false);
 $('#recTurn').onclick = ()=> settings.recFormat==='gif' ? makeGif('turn') : startRec('turn');
 $('#torsionRec').onclick = ()=> { if(anim||rec||gifBusy) return; settings.recFormat==='gif' ? makeGif('torsion') : startRec('torsion'); };
-$('#torsionPlay').onclick = ()=> { if(anim||gifBusy||seqLive) return; startTorsion(bondById(sel.id), settings.torsionAngle, settings.torsionDur); };
+$('#torsionPlay').onclick = ()=> { if(anim||gifBusy||seqLive) return; playTorsion(bondById(sel.id)); };
 $('#torsionDur').addEventListener('input', e=>{ settings.torsionDur=parseFloat(e.target.value); $('#torsionDurOut').textContent=settings.torsionDur+' 秒'; save(); });
 $('#torsionFlip').onchange = e=>{ settings.torsionFlip=e.target.checked; save(); };
 $('#torsionDeg').addEventListener('change', e=>{ const v=parseFloat(e.target.value); if(isFinite(v) && v!==0){ settings.torsionAngle=Math.max(-720,Math.min(720,v)); save(); renderPanel(); } });
@@ -1117,6 +1140,8 @@ function renderPanel(){
     if(ai && document.activeElement!==$('#dihedralTo') && $('#dihedralTo').value==='') $('#dihedralTo').value = Math.round(-ai.phi);
     $('#torsionDur').value = settings.torsionDur; $('#torsionDurOut').textContent = settings.torsionDur+' 秒';
     $('#torsionFlip').checked = settings.torsionFlip;
+    segRow($('#torsionLoop'), [['none','しない'],['pingpong','往復'],['round','1周']], settings.torsionLoop||'none', k=>{ settings.torsionLoop=k; save(); renderPanel(); });
+    $('#torsionLoopNote').textContent = {none:'前後に少し止まる時間が入ります（はじめと終わりの形を見せる用）。', pingpong:`${Math.abs(settings.torsionAngle)}° ねじって同じ道を戻ります。止まらずに始めと終わりがつながるので、繰り返し再生できます。`, round:'同じ向きに 360° ねじって元の形に戻ります。止まらずに始めと終わりがつながるので、繰り返し再生できます。'}[settings.torsionLoop||'none'];
     $('#torsionRec').textContent = settings.recFormat==='gif' ? '● 透過GIFに書き出す' : '● アニメーションを録画';
     $('#seqRec').textContent = settings.recFormat==='gif' ? '● 連続アニメーションを透過GIFに' : '● 連続アニメーションを録画';
     $('#seqBack').disabled = !seqSnap; renderSeq(!ts);
