@@ -559,6 +559,20 @@ function syncRecUi(){
   $('#recTurn').disabled = !!rec;
 }
 function showRecError(msg){ openModal(`<h3>録画</h3><p class="note">${msg}</p><div class="btnrow"><button class="btn" data-close>閉じる</button></div>`); }
+/* save a file: through the Claude viewer when available, else a normal browser download (GitHub Pages) */
+let dlNs;
+const dlReady = (window.claude && window.claude.use) ? window.claude.use('downloads').then(ns=>dlNs=ns, ()=>dlNs=null) : Promise.resolve(dlNs=null);
+async function saveFile(name, blob, msgEl){
+  await dlReady;
+  if(dlNs){
+    try{ await dlNs.save({filename:name, data:blob}); msgEl.textContent='保存しました。'; }
+    catch(e){ msgEl.textContent = e && e.code==='declined' ? '保存を取り消しました。' : '保存できませんでした。右クリック（スマホは長押し）で保存してください。'; }
+    return;
+  }
+  const u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u), 60000);
+}
 let lastVideoUrl = null;
 function showVideo(blob, ext){
   if(lastVideoUrl) URL.revokeObjectURL(lastVideoUrl);
@@ -566,8 +580,10 @@ function showVideo(blob, ext){
   const name = 'molmodel-' + new Date().toISOString().slice(0,19).replace(/[-:T]/g,'') + '.' + ext;
   openModal(`<h3>録画した動画</h3>
     <video src="${url}" controls autoplay loop muted playsinline></video>
-    <p class="note">${ext.toUpperCase()} 形式・${(blob.size/1048576).toFixed(1)} MB。「動画を保存」で保存できます。保存できないときは動画を右クリック（スマホは長押し）して保存するか、GitHub Pages 版（https://hashi-yu.github.io/molmodeling/）で録画してください。</p>
-    <div class="btnrow"><a class="btn primary" href="${url}" download="${name}">動画を保存</a><button class="btn" data-close>閉じる</button></div>`);
+    <p class="note">${ext.toUpperCase()} 形式・${(blob.size/1048576).toFixed(1)} MB。「動画を保存」で保存できます。</p>
+    <div class="btnrow"><button class="btn primary" id="vidSave">動画を保存</button><button class="btn" data-close>閉じる</button></div>
+    <div class="msg" id="vidMsg"></div>`);
+  $('#vidSave').onclick = ()=>saveFile(name, blob, $('#vidMsg'));
 }
 $('#recBtn').onclick = ()=> rec ? stopRec() : startRec(false);
 $('#recTurn').onclick = ()=> startRec(true);
@@ -815,11 +831,12 @@ $('#png').onclick = ()=>{
     <div class="field"><span class="lab">背景</span><div class="seg" id="pngBg"></div></div>
     <img id="pngImg" alt="書き出した分子モデルの画像">
     <p class="note">画像を右クリック（スマホは長押し）して保存できます。コピーしてスライドや資料に直接貼ることもできます。</p>
-    <div class="btnrow"><button class="btn primary" id="pngCopy">画像をコピー</button><button class="btn" data-close>閉じる</button></div>
+    <div class="btnrow"><button class="btn primary" id="pngSave">画像を保存</button><button class="btn" id="pngCopy">画像をコピー</button><button class="btn" data-close>閉じる</button></div>
     <div class="msg" id="pngMsg"></div>`);
   const draw=()=>{ const img=$('#pngImg'); img.src=renderPNG(); img.classList.toggle('checker',pngBg==='clear');
     segRow($('#pngBg'), [...Object.entries(BG).map(([k,v])=>[k,v[0]]),['clear','透明']], pngBg, k=>{pngBg=k; draw();}); };
   draw();
+  $('#pngSave').onclick = ()=>pngCanvas.toBlob(b=>saveFile('molmodel-'+Date.now()+'.png', b, $('#pngMsg')),'image/png');
   $('#pngCopy').onclick = ()=>{
     try{
       const item = new ClipboardItem({'image/png': new Promise(res=>pngCanvas.toBlob(res,'image/png'))});
