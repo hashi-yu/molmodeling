@@ -92,6 +92,14 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
 .num{width:72px;border:1px solid var(--line);background:var(--chip);border-radius:6px;padding:3px 6px;font-family:var(--f-mono);font-size:12px}
 .unit{align-self:center;font-size:12px;color:var(--muted)}
 .subh{margin:6px 0 0;font-size:12.5px;font-weight:500}
+.seqlist{display:grid;gap:6px}
+.seqrow{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:4px 6px;padding-bottom:6px;border-bottom:1px dashed var(--line)}
+.seqrow .top,.seqrow .bot{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.seqrow .bot{grid-column:2/4}
+.seqrow .seqn{width:16px;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.seqrow select{border:1px solid var(--line);background:var(--chip);border-radius:7px;padding:4px 5px;font-size:12.5px}
+.seqrow .num{width:60px}
+.seqrow .del{border:1px solid var(--line);background:var(--chip);border-radius:6px;padding:2px 8px;cursor:pointer}
 #torsionCtl{display:grid;gap:10px}
 .tag.axial{background:#5b3fb8}
 .tag.flat{background:#6b7280}
@@ -127,7 +135,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v14</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v15</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -224,6 +232,11 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <label class="check"><input type="checkbox" id="torsionFlip"> 反対側を回す</label>
         <div class="btnrow" style="margin-top:8px"><button class="btn primary" id="torsionPlay">▶ ねじれアニメーション</button><button class="btn rec" id="torsionRec">● アニメーションを録画</button></div>
       </div>
+      <h3 class="subh">連続アニメーション（この結合で）</h3>
+      <p class="note" id="seqNote">この結合を使って、上の手順から順に動かします。「垂直軸」は、その手順が始まるときの画面の縦・横・奥行きの向きを、結合に垂直になるようにとります。</p>
+      <div id="seqList" class="seqlist"></div>
+      <div class="btnrow"><button class="btn" id="seqAdd">＋ 手順を追加</button><button class="btn" id="seqDefault">はじめの手順に戻す</button></div>
+      <div class="btnrow"><button class="btn primary" id="seqPlay">▶ 連続再生</button><button class="btn" id="seqBack" title="連続再生する前の形と向きに戻す">↺ 再生前に戻す</button><button class="btn rec" id="seqRec">● 連続アニメーションを録画</button></div>
     </section>
 
     <section class="sec">
@@ -245,14 +258,14 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <div class="field"><span class="lab">回転軸</span><div class="seg" id="rotAxis"></div></div>
       <p class="note" id="axisNote"></p>
       <div id="axisOpts" class="btnrow" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <div class="field" style="width:100%" id="axisDirRow"><span class="lab">軸の向き</span><div class="seg" id="axisDirSeg"></div></div>
+        <div class="btnrow" id="axisAlignRow"><button class="btn" id="axisH" title="回転軸の結合が画面の水平になるように向きを変える">⟷ 軸を水平に向ける</button><button class="btn" id="axisV" title="回転軸の結合が画面の垂直になるように向きを変える">↕ 軸を垂直に向ける</button></div>
         <div class="field" style="width:100%" id="perpRow"><span class="lab">回す軸</span><div class="seg" id="perpSeg"></div></div>
         <p class="note" id="perpNote"></p>
         <label class="check"><input type="checkbox" id="showAxis"> 軸を点線で表示する</label>
         <div class="field" style="width:100%" id="tumbleRow"><label for="tumbleDeg">垂直軸で</label><div class="seg"><input type="number" class="num" id="tumbleDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="tumbleGo">回す</button><button id="tumbleTo">この角度にする</button></div></div>
         <div class="field" style="width:100%"><label for="spinDeg">結合軸で</label><div class="seg"><input type="number" class="num" id="spinDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="spinGo">回す</button><button id="spinTo">この角度にする</button></div></div>
         <p class="note" id="spinNow"></p>
-        <button class="btn" id="resetSpin">回転をもとの向きに戻す</button>
+        <button class="btn" id="resetSpin">軸を選んだときの向きに戻す</button>
       </div>
       <div class="field"><span class="lab">録画の形式</span><div class="seg" id="recFormat"></div></div>
       <div class="field" id="gifSizeRow"><span class="lab">GIFの幅</span><div class="seg" id="gifSize"></div></div>
@@ -300,7 +313,8 @@ const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.
 
 /* ---------- state ---------- */
 let state = {nodes:[],bonds:[]};
-let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisDir:'v',perpAxis:'y',showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisDir:'v',perpAxis:'y',showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false,seq:null};
+const SEQ_DEFAULT = [{k:'spin',deg:360,sec:4},{k:'twist',deg:180,sec:3},{k:'perp',deg:360,sec:4,ax:'y'}];
 let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
 let undoStack = [], redoStack = [];
 let nid = 1;
@@ -527,27 +541,26 @@ world.matrixAutoUpdate = false;
 const nodeName = n => (KITS.find(k=>k.shape===n.shape && k.color.toLowerCase()===n.color.toLowerCase())||{label:SHAPES[n.shape]}).label;
 const axisBond = () => (settings.rotAxis==='bond' || settings.rotAxis==='perp') && settings.rotBond!=null ? (bondById(settings.rotBond) || null) : null;
 const isPerp = () => settings.rotAxis==='perp' && !!axisBond();
-// turning about an axis perpendicular to the bond: r = the turning axis, d = where the bond lies at the start (screen axes, front view)
-const PERP = {y:{r:V(0,1,0), d:V(1,0,0)}, x:{r:V(1,0,0), d:V(0,1,0)}, z:{r:V(0,0,1), d:V(0,1,0)}};
-const perpInfo = () => PERP[settings.perpAxis] || PERP.y;
 function axisInfo(b){ const A=P(nodeById(b.a)), B=P(nodeById(b.b)); return {a:B.clone().sub(A).normalize(), c:A.clone().add(B).multiplyScalar(0.5)}; }
-const axisDir = () => settings.axisDir || (settings.axisUpright===false ? 'free' : 'v');
-function applyWorld(){ // spin the whole model about the chosen bond, pivoting on the bond's midpoint
-  const b = axisBond();
-  if(!b){ world.matrix.identity(); world.matrixWorldNeedsUpdate = true; return; }
-  const {a,c} = axisInfo(b);
-  let q;
-  if(isPerp()){ // lay the bond across the turning axis, roll it about itself, then turn it about the perpendicular axis
-    const {r,d} = perpInfo();
-    q = new THREE.Quaternion().setFromAxisAngle(r, tumbleAngle).multiply(new THREE.Quaternion().setFromAxisAngle(d, spinAngle)).multiply(new THREE.Quaternion().setFromUnitVectors(a, d));
-  } else {
-    const dir = axisDir(), to = dir==='v' ? Y : dir==='h' ? V(1,0,0) : null; // stand the axis upright / lay it level
-    const qAlign = to ? new THREE.Quaternion().setFromUnitVectors(a, to) : new THREE.Quaternion();
-    q = new THREE.Quaternion().setFromAxisAngle(to || a, spinAngle).multiply(qAlign);
-  }
-  world.matrix.makeTranslation(c.x,c.y,c.z).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-c.x,-c.y,-c.z));
-  world.matrixWorldNeedsUpdate = true;
+/* the model's pose lives in world.matrix and only ever changes by turning it, so choosing another axis never moves the molecule */
+const bondDirW = b => W(P(nodeById(b.b))).sub(W(P(nodeById(b.a)))).normalize();
+const bondMidW = b => W(axisInfo(b).c);
+function perpFor(b, k){ // the screen axis k (x/y/z), made exactly perpendicular to the bond as it now lies
+  const d = bondDirW(b);
+  for(const kk of [k||'y','z','x','y']){ const u = screenAxis(kk), r = u.sub(d.clone().multiplyScalar(u.dot(d))); if(r.lengthSq()>0.05) return r.normalize(); }
+  return V(0,1,0);
 }
+let perpAxisW = null; // the perpendicular turning axis (world); picked from the screen when first needed, then held fixed
+function perpAxis(){ if(!perpAxisW) perpAxisW = perpFor(axisBond(), settings.perpAxis); return perpAxisW; }
+function turnWorld(p, axis, ang){ // turn the whole model by ang about the line through world point p along axis
+  const m = new THREE.Matrix4().makeTranslation(p.x,p.y,p.z).multiply(new THREE.Matrix4().makeRotationAxis(axis.clone().normalize(), ang)).multiply(new THREE.Matrix4().makeTranslation(-p.x,-p.y,-p.z));
+  world.matrix.premultiply(m); world.matrixWorldNeedsUpdate = true;
+}
+const spinBond = (b, ang) => turnWorld(bondMidW(b), bondDirW(b), ang);
+const tumbleBond = (b, axis, ang) => turnWorld(bondMidW(b), axis, ang);
+function applyWorld(){ world.matrixWorldNeedsUpdate = true; }
+const axisHome = new THREE.Matrix4(); // the pose when the axis was chosen; "back to start" returns here
+function resetWorld(){ world.matrix.identity(); axisHome.identity(); spinAngle = 0; tumbleAngle = 0; perpAxisW = null; applyWorld(); }
 const W = v => v.applyMatrix4(world.matrix);              // model -> screen-space world
 const L = v => v.applyMatrix4(world.matrix.clone().invert()); // world -> model
 
@@ -594,8 +607,8 @@ function rebuild(){
   if(ab && settings.showAxis && !moleculeOnly()){
     const {a,c} = axisInfo(ab), onPerp = isPerp();
     let R = 1.5; state.nodes.forEach(n=>R=Math.max(R, P(n).distanceTo(c)+n.size+0.8));
-    const dirv = onPerp ? perpInfo().r : a; // the perpendicular axis is fixed on screen, so it lives outside the turning group (the pivot c stays put)
-    const g = new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(dirv,-R), c.clone().addScaledVector(dirv,R)]);
+    const dirv = onPerp ? perpAxis() : a, cc = onPerp ? bondMidW(ab) : c; // the perpendicular axis stays put on screen, so it lives outside the turning group
+    const g = new THREE.BufferGeometry().setFromPoints([cc.clone().addScaledVector(dirv,-R), cc.clone().addScaledVector(dirv,R)]);
     const line = new THREE.Line(g, new THREE.LineDashedMaterial({color:0xd9480f, dashSize:0.28, gapSize:0.2}));
     line.computeLineDistances(); (onPerp ? axisGroup : world).add(line);
   }
@@ -612,7 +625,7 @@ new ResizeObserver(resize).observe(view);
 function fitView(){
   if(!state.nodes.length) return;
   applyWorld(); let c, s;
-  if(isPerp()){ c = axisInfo(axisBond()).c; s = 0; state.nodes.forEach(n=>s=Math.max(s, P(n).distanceTo(c)+n.size)); s += 1.2; } // frame every pose of the turn
+  if(isPerp()){ c = bondMidW(axisBond()); s = 0; state.nodes.forEach(n=>s=Math.max(s, W(P(n)).distanceTo(c)+n.size)); s += 1.2; } // frame every pose of the turn
   else { const box = new THREE.Box3(); state.nodes.forEach(n=>box.expandByPoint(W(P(n))));
     c = box.getCenter(new THREE.Vector3()); s = box.getBoundingSphere(new THREE.Sphere()).radius + 1.2; }
   const dist = s/Math.sin(THREE.MathUtils.degToRad(camera.fov/2)) * (camera.aspect<1?1/camera.aspect*0.9:1);
@@ -640,8 +653,8 @@ let tagTick=0;
 let lastT = performance.now();
 function spin(dt){ // rotate the camera around the target; time-based so one turn takes exactly rotPeriod seconds
   const ang = settings.rotDir * 2*Math.PI * dt / settings.rotPeriod;
-  if(isPerp()){ tumbleAngle = (tumbleAngle + ang) % (2*Math.PI); applyWorld(); return; }
-  if(axisBond()){ spinAngle = (spinAngle + ang) % (2*Math.PI); applyWorld(); return; }
+  if(isPerp()){ tumbleBond(axisBond(), perpAxis(), ang); tumbleAngle = (tumbleAngle + ang) % (2*Math.PI); return; }
+  if(axisBond()){ spinBond(axisBond(), ang); spinAngle = (spinAngle + ang) % (2*Math.PI); return; }
   const off = camera.position.clone().sub(controls.target);
   off.applyAxisAngle(camera.up.clone().normalize(), -ang);
   camera.position.copy(controls.target).add(off);
@@ -650,7 +663,7 @@ function spin(dt){ // rotate the camera around the target; time-based so one tur
 /* step rotations about the screen axes (animated) */
 let turnQueue = [];
 function screenAxis(k){
-  const m = camera.matrixWorld;
+  camera.updateMatrixWorld(); const m = camera.matrixWorld;
   return new THREE.Vector3().setFromMatrixColumn(m, k==='x'?0:k==='y'?1:2).normalize();
 }
 function orbitBy(axis, ang){ // turn the model by +ang about a screen axis = turn the camera by -ang
@@ -672,10 +685,13 @@ function runTurns(dt){
   const t = turnQueue[0]; if(!t) return;
   const step = Math.sign(t.left) * Math.min(Math.abs(t.left), Math.PI*2.2*dt);
   orbitBy(t.axis || screenAxis(t.k), step); t.left -= step;
-  if(Math.abs(t.left) < 1e-6) turnQueue.shift();
+  if(Math.abs(t.left) < 1e-6){ turnQueue.shift(); if(!turnQueue.length) viewMoved(); }
+}
+function viewMoved(){ // the screen axes changed: pick the perpendicular axis afresh next time
+  if(!perpAxisW) return; perpAxisW = null; tumbleAngle = 0; if(isPerp()) rebuild(); showSpinNow();
 }
 function resetView(){
-  turnQueue = []; spinAngle = 0; tumbleAngle = 0; applyWorld();
+  turnQueue = []; resetWorld();
   camera.up.set(0,1,0); camera.position.copy(controls.target).add(new THREE.Vector3(0,0,1)); camera.lookAt(controls.target);
   fitView();
 }
@@ -683,7 +699,7 @@ function loop(now){
   requestAnimationFrame(loop);
   if(gifBusy){ lastT = now||performance.now(); return; } // the GIF writer drives rendering itself
   const dt = Math.min(0.1, ((now||performance.now()) - lastT)/1000); lastT = now||performance.now();
-  if(settings.autoRotate && !drag){ spin(dt); if(rec && rec.turnLeft!=null){ rec.turnLeft -= dt; if(rec.turnLeft<=0) stopRec(); } }
+  if(settings.autoRotate && !drag && !seqLive){ spin(dt); if(rec && rec.turnLeft!=null){ rec.turnLeft -= dt; if(rec.turnLeft<=0) stopRec(); } }
   runAnim(dt); runTurns(dt); controls.update(); renderer.render(scene,camera); if(rec) copyFrame(); if((tagTick++%2)===0) updateTags();
   if(rec) $('#recBanner').textContent = '録画中 ' + fmtTime((performance.now()-rec.t0)/1000);
 }
@@ -716,7 +732,10 @@ function startTorsion(bond, deg, dur, onDone){
   anim = {bond, left:THREE.MathUtils.degToRad(deg), speed:Math.abs(THREE.MathUtils.degToRad(deg))/dur, onDone};
 }
 function runAnim(dt){
-  if(spinAnim){ const st = Math.sign(spinAnim.left)*Math.min(Math.abs(spinAnim.left), Math.PI*dt); if(spinAnim.k==='tumble') tumbleAngle += st; else spinAngle += st; spinAnim.left -= st; applyWorld();
+  if(seqLive && seqLive.run.advance(dt)){ const cb = seqLive.onDone; seqLive = null; save(); rebuild(); renderPanel(); cb && cb(); }
+  if(spinAnim && !axisBond()) spinAnim = null;
+  if(spinAnim){ const st = Math.sign(spinAnim.left)*Math.min(Math.abs(spinAnim.left), Math.PI*dt);
+    if(spinAnim.k==='tumble'){ tumbleBond(axisBond(), perpAxis(), st); tumbleAngle += st; } else { spinBond(axisBond(), st); spinAngle += st; } spinAnim.left -= st;
     if(Math.abs(spinAnim.left)<1e-9){ spinAnim=null; } showSpinNow(); }
   if(!anim) return;
   const d = Math.sign(anim.left) * Math.min(Math.abs(anim.left), anim.speed*dt);
@@ -725,8 +744,36 @@ function runAnim(dt){
 }
 /* an export plan: how to step through the motion, and how to put things back */
 function turnPlan(){ const T=settings.rotPeriod; return { secs:T, loop:true, advance:f=>spin(T*f),
-  save:()=>({cp:camera.position.clone(), cu:camera.up.clone(), sa:spinAngle, ta:tumbleAngle}),
-  restore:s=>{ camera.position.copy(s.cp); camera.up.copy(s.cu); camera.lookAt(controls.target); spinAngle=s.sa; tumbleAngle=s.ta; applyWorld(); } }; }
+  save:()=>({cp:camera.position.clone(), cu:camera.up.clone(), sa:spinAngle, ta:tumbleAngle, m:world.matrix.clone()}),
+  restore:s=>{ camera.position.copy(s.cp); camera.up.copy(s.cu); camera.lookAt(controls.target); spinAngle=s.sa; tumbleAngle=s.ta; world.matrix.copy(s.m); applyWorld(); } }; }
+/* a chain of steps on one bond: turn about it, twist it, turn about an axis across it, pause */
+const ease = t => t<=0 ? 0 : t>=1 ? 1 : t*t*(3-2*t);
+function seqRunner(bond, steps){
+  let i = 0, t = 0, axis = null;
+  const total = steps.reduce((a,x)=>a+Math.max(0,+x.sec||0), 0);
+  return { total, advance(dt){ // true once every step is done
+    while(i < steps.length){
+      const st = steps[i], dur = Math.max(0,+st.sec||0), tot = THREE.MathUtils.degToRad(+st.deg||0);
+      if(t===0 && st.k==='perp') axis = perpFor(bond, st.ax);
+      const use = Math.max(0, Math.min(dt, dur-t)), f0 = dur ? ease(t/dur) : 0, f1 = dur ? ease((t+use)/dur) : 1, a = tot*(f1-f0);
+      if(a){ if(st.k==='spin') spinBond(bond, a); else if(st.k==='perp') tumbleBond(bond, axis, a); else if(st.k==='twist'){ rotateSide(bond, a); rebuild(); } }
+      t += use; dt -= use;
+      if(t >= dur-1e-9){ i++; t = 0; } else return false;
+    }
+    return true; } };
+}
+const seqSteps = () => (settings.seq || SEQ_DEFAULT).map(x=>({...x}));
+const poseSave = () => ({m:world.matrix.clone(), nodes:state.nodes.map(n=>({id:n.id,x:n.x,y:n.y,z:n.z}))});
+function poseRestore(s){ world.matrix.copy(s.m); applyWorld(); s.nodes.forEach(o=>{ const n=nodeById(o.id); if(n){ n.x=o.x; n.y=o.y; n.z=o.z; } }); rebuild(); }
+function seqPlan(bond){ const steps = seqSteps(); let run = seqRunner(bond, steps);
+  return { secs:Math.max(0.1, run.total), loop:false, advance:f=>run.advance(f*run.total),
+    save:poseSave, restore:s=>{ poseRestore(s); run = seqRunner(bond, steps); } }; }
+let seqLive = null, seqSnap = null;
+function startSeq(bond, onDone){
+  if(!bond || seqLive || anim) return;
+  pushHistory(); seqSnap = poseSave(); spinAnim = null;
+  seqLive = {run:seqRunner(bond, seqSteps()), onDone};
+}
 function torsionPlan(bond){ const tot=THREE.MathUtils.degToRad(settings.torsionAngle); return { secs:settings.torsionDur, loop: settings.torsionAngle!==0 && settings.torsionAngle%360===0,
   advance:f=>{ rotateSide(bond, tot*f); rebuild(); },
   save:()=>state.nodes.map(n=>[n.x,n.y,n.z]),
@@ -741,14 +788,14 @@ function measurePlan(plan, S){ // union of the molecule's on-screen area over th
   plan.restore(keep); return padBox(u, src);
 }
 function measureTurn(samples){ // union of the molecule's on-screen area over one full turn; leaves the view as it was
-  const src=renderer.domElement, cp=camera.position.clone(), cu=camera.up.clone(), sa=spinAngle, ta=tumbleAngle;
+  const src=renderer.domElement, cp=camera.position.clone(), cu=camera.up.clone(), sa=spinAngle, ta=tumbleAngle, wm=world.matrix.clone();
   let u=null;
   for(let i=0;i<samples;i++){
     renderer.render(scene,camera); const b=alphaBox(src,0.5);
     if(b) u = u ? {x0:Math.min(u.x0,b.x0),y0:Math.min(u.y0,b.y0),x1:Math.max(u.x1,b.x1),y1:Math.max(u.y1,b.y1)} : b;
     if(samples>1) spin(settings.rotPeriod/samples);
   }
-  camera.position.copy(cp); camera.up.copy(cu); camera.lookAt(controls.target); spinAngle=sa; tumbleAngle=ta; applyWorld();
+  camera.position.copy(cp); camera.up.copy(cu); camera.lookAt(controls.target); spinAngle=sa; tumbleAngle=ta; world.matrix.copy(wm); applyWorld();
   return padBox(u, src);
 }
 let recBox = null;
@@ -757,15 +804,16 @@ function copyFrame(){ // paint the stage colour, then the 3D frame, onto an even
   recCtx.fillStyle = BG[settings.bg][1]; recCtx.fillRect(0,0,recCanvas.width,recCanvas.height);
   const b = recBox; recCtx.drawImage(renderer.domElement, b.x, b.y, b.w, b.h, 0, 0, recCanvas.width, recCanvas.height);
 }
-function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsion' (selected bond)
+function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsion' / 'seq' (selected bond)
   if(rec) return;
   mimes = mimes || mimeList();
   const src = renderer.domElement;
   if(!mimes.length || !HTMLCanvasElement.prototype.captureStream){ showRecError('このブラウザは録画に対応していません。Chrome・Edge・Firefox・Safari の最新版でお試しください。'); return; }
   recording = true; rebuild();
-  const tb = mode==='torsion' ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
-  if(mode==='torsion' && !tb){ recording=false; rebuild(); return; }
-  recBox = tb ? measurePlan(torsionPlan(tb), 16) : measureTurn((mode==='turn' || settings.autoRotate) ? 24 : 1); // frame fits the molecule over the whole motion
+  const tb = (mode==='torsion' || mode==='seq') ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
+  if((mode==='torsion' || mode==='seq') && !tb){ recording=false; rebuild(); return; }
+  const plan0 = tb ? (mode==='seq' ? seqPlan(tb) : torsionPlan(tb)) : null;
+  recBox = tb ? measurePlan(plan0, mode==='seq' ? 48 : 16) : measureTurn((mode==='turn' || settings.autoRotate) ? 24 : 1); // frame fits the molecule over the whole motion
   const k = Math.min(1, 1920/recBox.w);
   recCanvas = document.createElement('canvas');
   recCanvas.width = Math.max(2, Math.floor(recBox.w*k/2)*2); recCanvas.height = Math.max(2, Math.floor(recBox.h*k/2)*2);
@@ -775,21 +823,22 @@ function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsi
   let mr;
   try{ mr = new MediaRecorder(recCanvas.captureStream(30), {mimeType:m, videoBitsPerSecond:8e6}); }
   catch(e){ recCanvas=recCtx=null; recording=false; rebuild(); return mimes.length>1 ? startRec(mode, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
-  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false, snap: tb ? torsionPlan(tb).save() : null};
+  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false, snap: plan0 ? plan0.save() : null};
   mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
   mr.onerror = () => {};
   mr.onstop = () => {
     const early = !me.userStopped;
     if(rec===me) finishRec(me);
     const blob = new Blob(chunks,{type:m.split(';')[0]});
-    if(early && performance.now()-me.t0 < 1500 && mimes.length>1){ if(me.snap){ anim=null; torsionPlan(tb).restore(me.snap); } startRec(mode, mimes.slice(1)); return; } // this format failed: try the next one
+    if(early && performance.now()-me.t0 < 1500 && mimes.length>1){ if(me.snap){ anim=null; seqLive=null; plan0.restore(me.snap); } startRec(mode, mimes.slice(1)); return; } // this format failed: try the next one
     if(!blob.size){ showRecError('録画に失敗しました。別のブラウザ（Chrome など）でお試しください。'); return; }
     showVideo(blob, ext);
   };
   rec = me;
   if(mode==='turn'){ settings.autoRotate = true; me.turnLeft = settings.rotPeriod; }
   if(tb){ me.prevRotate = settings.autoRotate; settings.autoRotate = false; me.turnLeft = null; me.restoreRotate = true;
-    setTimeout(()=>{ if(rec!==me) return; startTorsion(tb, settings.torsionAngle, settings.torsionDur, ()=>setTimeout(()=>{ if(rec===me) stopRec(); }, 700)); }, 500); }
+    const done = ()=>setTimeout(()=>{ if(rec===me) stopRec(); }, 700);
+    setTimeout(()=>{ if(rec!==me) return; mode==='seq' ? startSeq(tb, done) : startTorsion(tb, settings.torsionAngle, settings.torsionDur, done); }, 500); }
   mr.start(500); syncRecUi();
 }
 function finishRec(r){
@@ -838,7 +887,7 @@ function showVideo(blob, ext){
 $('#recBtn').onclick = ()=> gifBusy ? null : rec ? stopRec() : settings.recFormat==='gif' ? makeGif('turn') : startRec(false);
 $('#recTurn').onclick = ()=> settings.recFormat==='gif' ? makeGif('turn') : startRec('turn');
 $('#torsionRec').onclick = ()=> { if(anim||rec||gifBusy) return; settings.recFormat==='gif' ? makeGif('torsion') : startRec('torsion'); };
-$('#torsionPlay').onclick = ()=> { if(anim||gifBusy) return; startTorsion(bondById(sel.id), settings.torsionAngle, settings.torsionDur); };
+$('#torsionPlay').onclick = ()=> { if(anim||gifBusy||seqLive) return; startTorsion(bondById(sel.id), settings.torsionAngle, settings.torsionDur); };
 $('#torsionDur').addEventListener('input', e=>{ settings.torsionDur=parseFloat(e.target.value); $('#torsionDurOut').textContent=settings.torsionDur+' 秒'; save(); });
 $('#torsionFlip').onchange = e=>{ settings.torsionFlip=e.target.checked; save(); };
 $('#torsionDeg').addEventListener('change', e=>{ const v=parseFloat(e.target.value); if(isFinite(v) && v!==0){ settings.torsionAngle=Math.max(-720,Math.min(720,v)); save(); renderPanel(); } });
@@ -849,7 +898,7 @@ $('#dihedralGo').onclick = ()=>{ // turn by the difference between the current a
   startTorsion(b, d, Math.max(0.4, Math.abs(d)/180*settings.torsionDur));
 };
 let spinAnim = null;
-function spinBy(deg, k){ if(!axisBond() || (k==='tumble' && !isPerp())) return; spinAnim = {left:THREE.MathUtils.degToRad(deg), k:k||'spin'}; }
+function spinBy(deg, k){ if(!axisBond() || seqLive || (k==='tumble' && !isPerp())) return; spinAnim = {left:THREE.MathUtils.degToRad(deg), k:k||'spin'}; }
 const turnTo = (v, cur) => ((v-THREE.MathUtils.radToDeg(cur)+540)%360+360)%360-180; // shortest way from cur (rad) to v (deg)
 $('#tumbleGo').onclick = ()=>{ const v=parseFloat($('#tumbleDeg').value); if(isFinite(v)) spinBy(v,'tumble'); };
 $('#tumbleTo').onclick = ()=>{ const v=parseFloat($('#tumbleDeg').value); if(isFinite(v)) spinBy(turnTo(v,tumbleAngle),'tumble'); };
@@ -897,15 +946,16 @@ function gifFrame(idx, w, h, delay){
 }
 const nextFrame = () => new Promise(r=>requestAnimationFrame(()=>r()));
 async function makeGif(kind){
-  if(gifBusy || rec || anim) return;
-  const tb = kind==='torsion' ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
-  if(kind==='torsion' && !tb) return;
-  const plan = tb ? torsionPlan(tb) : turnPlan();
+  if(gifBusy || rec || anim || seqLive) return;
+  const tb = (kind==='torsion' || kind==='seq') ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
+  if((kind==='torsion' || kind==='seq') && !tb) return;
+  const plan = kind==='seq' ? seqPlan(tb) : tb ? torsionPlan(tb) : turnPlan();
+  if(kind==='seq') seqSnap = poseSave();
   gifBusy = true; recording = true; rebuild(); syncRecUi();
   const banner = $('#recBanner'); banner.hidden = false;
   try{
     if(tb) pushHistory();
-    const src = renderer.domElement, box = measurePlan(plan, tb ? 16 : 24);
+    const src = renderer.domElement, box = measurePlan(plan, kind==='seq' ? 48 : tb ? 16 : 24);
     const W = Math.min(settings.gifWidth, box.w), H = Math.max(2, Math.round(box.h*W/box.w));
     const cv = document.createElement('canvas'); cv.width=W; cv.height=H; const cx = cv.getContext('2d',{willReadFrequently:true});
     const matte = new THREE.Color(BG[settings.bg][1]); const mr=matte.r*255, mg=matte.g*255, mb=matte.b*255;
@@ -1068,6 +1118,8 @@ function renderPanel(){
     $('#torsionDur').value = settings.torsionDur; $('#torsionDurOut').textContent = settings.torsionDur+' 秒';
     $('#torsionFlip').checked = settings.torsionFlip;
     $('#torsionRec').textContent = settings.recFormat==='gif' ? '● 透過GIFに書き出す' : '● アニメーションを録画';
+    $('#seqRec').textContent = settings.recFormat==='gif' ? '● 連続アニメーションを透過GIFに' : '● 連続アニメーションを録画';
+    $('#seqBack').disabled = !seqSnap; renderSeq(!ts);
   }
   $('#bondLen').value = settings.bondLen; $('#bondLenOut').textContent = settings.bondLen.toFixed(2);
   $('#bondRad').value = settings.bondRad; $('#bondRadOut').textContent = settings.bondRad.toFixed(3);
@@ -1081,7 +1133,7 @@ function renderPanel(){
   segRow($('#rotAxis'), [['view','画面の縦軸'],['bond','選んだ結合'],['perp','結合に垂直']], settings.rotAxis, k=>{
     if(k!=='view' && sel && sel.type==='bond') return useBondAxis(sel.id, k);
     if(k!=='view' && settings.rotBond!=null && bondById(settings.rotBond)) return useBondAxis(settings.rotBond, k);
-    settings.rotAxis=k; spinAngle=0; tumbleAngle=0; save(); rebuild(); renderPanel(); });
+    settings.rotAxis=k; spinAnim=null; spinAngle=0; tumbleAngle=0; axisHome.copy(world.matrix); save(); rebuild(); renderPanel(); });
   const bname = ab ? `<b>${nodeName(nodeById(ab.a))}–${nodeName(nodeById(ab.b))}</b>` : '';
   $('#axisNote').innerHTML = settings.rotAxis==='view' ? '画面の縦方向を軸に、見る向きを回します。'
     : ab && settings.rotAxis==='perp' ? `${bname} の結合の中点を通り、結合に垂直な軸のまわりに分子全体を回します。結合を変えるには、別の結合をクリックして「この結合に垂直な軸で回す」を押してください。`
@@ -1089,10 +1141,9 @@ function renderPanel(){
     : '回転軸にする結合が選ばれていません。結合をクリックして「この結合を回転軸にする」を押してください。';
   $('#axisOpts').hidden = settings.rotAxis==='view';
   const perpMode = settings.rotAxis==='perp';
-  $('#axisDirRow').hidden = perpMode; $('#perpRow').hidden = !perpMode; $('#perpNote').hidden = !perpMode; $('#tumbleRow').hidden = !perpMode;
-  segRow($('#perpSeg'), [['y','画面の縦'],['x','画面の横'],['z','奥行き']], settings.perpAxis, k=>{ settings.perpAxis=k; tumbleAngle=0; save(); rebuild(); frontView(); renderPanel(); });
-  $('#perpNote').textContent = {y:'結合を横に寝かせ、縦の軸のまわりに水平に回します。', x:'結合を縦に立て、横の軸のまわりに手前・奥へ倒れるように回します。', z:'結合を縦に立て、画面に垂直な軸のまわりに時計の針のように回します。'}[settings.perpAxis] || '';
-  segRow($('#axisDirSeg'), [['v','垂直'],['h','水平'],['free','そのまま']], axisDir(), d=>{ settings.axisDir=d; spinAngle=0; save(); rebuild(); if(d!=='free') sideView(); else fitView(); renderPanel(); });
+  $('#perpRow').hidden = !perpMode; $('#perpNote').hidden = !perpMode; $('#tumbleRow').hidden = !perpMode;
+  segRow($('#perpSeg'), [['y','画面の縦'],['x','画面の横'],['z','奥行き']], settings.perpAxis, k=>{ settings.perpAxis=k; perpAxisW=null; tumbleAngle=0; save(); rebuild(); renderPanel(); });
+  $('#perpNote').textContent = '分子の向きはそのままで、結合の中点を通り結合に垂直な軸（画面の' + ({y:'縦',x:'横',z:'奥行き'}[settings.perpAxis]||'縦') + 'の向きに近いもの）のまわりに回します。';
   $('#showAxis').checked = settings.showAxis; showSpinNow();
   if(b){ $('#bondAxis').classList.toggle('on', !!ab && ab.id===b.id && !perpMode); $('#bondPerp').classList.toggle('on', !!ab && ab.id===b.id && perpMode); }
   segRow($('#recFormat'), [['video','動画（MP4）'],['gif','透過GIF']], settings.recFormat, k=>{ settings.recFormat=k; save(); renderPanel(); });
@@ -1143,20 +1194,43 @@ $('#selColor').addEventListener('change', ()=>{ colorPushed=false; save(); rende
 $('#selShape').addEventListener('change', e=>mutate(()=>nodeById(sel.id).shape=e.target.value));
 $('#delNode').onclick = ()=>deleteSel();
 $('#delBond').onclick = ()=>deleteSel();
-function sideView(){ // look across the axis: an upright axis stands vertical, a level one lies horizontal on screen
-  camera.up.set(0,1,0);
-  const off = camera.position.clone().sub(controls.target); off.y = 0; if(axisDir()==='h') off.x = 0;
-  if(off.lengthSq()<1e-6) off.set(0,0,1);
-  camera.position.copy(controls.target).add(off.normalize());
-  fitView();
+function useBondAxis(id, mode){ // choosing an axis leaves the molecule exactly as it is on screen
+  settings.rotAxis=mode||'bond'; settings.rotBond=id; spinAnim=null; spinAngle=0; tumbleAngle=0; perpAxisW=null; axisHome.copy(world.matrix);
+  save(); rebuild(); renderPanel();
 }
-function frontView(){ // the perpendicular-axis turn is laid out in screen axes, so look straight from the front
-  camera.up.set(0,1,0); camera.position.copy(controls.target).add(V(0,0,1)); camera.lookAt(controls.target); fitView();
+$('#axisH').onclick = ()=>{ const b=axisBond(); if(b) alignBondOnScreen(b,'h'); };
+$('#axisV').onclick = ()=>{ const b=axisBond(); if(b) alignBondOnScreen(b,'v'); };
+/* the step list of the chained animation */
+const SEQ_KINDS = [['spin','結合軸で回す'],['twist','ねじる'],['perp','垂直軸で回す'],['wait','止まる']];
+let seqKey = '';
+function renderSeq(noTwist){
+  const steps = settings.seq || SEQ_DEFAULT, key = JSON.stringify(steps);
+  $('#seqNote').textContent = 'この結合を使って、上の手順から順に動かします。「垂直軸」は、その手順が始まるときの画面の縦・横・奥行きの向きを、結合に垂直になるようにとります。'
+    + (noTwist && steps.some(x=>x.k==='twist') ? ' この結合は環の中にあるので、「ねじる」の手順では何も動きません。' : '');
+  if(key===seqKey) return; seqKey = key;
+  const box = $('#seqList'); box.innerHTML = '';
+  steps.forEach((st,i)=>{
+    const row = document.createElement('div'); row.className = 'seqrow';
+    row.innerHTML = `<span class="seqn">${i+1}</span><span class="top"><select data-f="k" aria-label="手順${i+1}の動き">${SEQ_KINDS.map(([k,l])=>`<option value="${k}"${k===st.k?' selected':''}>${l}</option>`).join('')}</select>`
+      + (st.k==='perp' ? `<select data-f="ax" aria-label="垂直軸の向き">${[['y','画面の縦'],['x','画面の横'],['z','奥行き']].map(([k,l])=>`<option value="${k}"${k===(st.ax||'y')?' selected':''}>${l}</option>`).join('')}</select>` : '')
+      + `</span><button class="del" title="この手順を消す" aria-label="手順${i+1}を消す">×</button><span class="bot">`
+      + (st.k!=='wait' ? `<input type="number" class="num" data-f="deg" step="1" min="-1080" max="1080" value="${st.deg}" aria-label="角度"><span class="unit">°</span>` : '')
+      + `<input type="number" class="num" data-f="sec" step="0.5" min="0" max="30" value="${st.sec}" aria-label="時間"><span class="unit">秒</span></span>`;
+    row.querySelectorAll('[data-f]').forEach(el=>el.onchange = ()=>{
+      const list = (settings.seq || SEQ_DEFAULT).map(x=>({...x})), f = el.dataset.f;
+      list[i][f] = (f==='deg'||f==='sec') ? (parseFloat(el.value)||0) : el.value;
+      if(f==='k'){ if(el.value==='perp' && !list[i].ax) list[i].ax='y'; if(el.value==='twist' && !list[i].deg) list[i].deg=180; }
+      settings.seq = list; save(); if(f==='k') renderSeq(); else seqKey = JSON.stringify(list);
+    });
+    row.querySelector('.del').onclick = ()=>{ settings.seq = (settings.seq || SEQ_DEFAULT).filter((_,j)=>j!==i); save(); renderSeq(); };
+    box.appendChild(row);
+  });
 }
-function useBondAxis(id, mode){
-  settings.rotAxis=mode||'bond'; settings.rotBond=id; spinAngle=0; tumbleAngle=0; settings.autoRotate=true;
-  save(); rebuild(); if(settings.rotAxis==='perp') frontView(); else if(axisDir()!=='free') sideView(); renderPanel();
-}
+$('#seqAdd').onclick = ()=>{ settings.seq = [...(settings.seq || SEQ_DEFAULT).map(x=>({...x})), {k:'perp',deg:360,sec:4,ax:'y'}]; save(); renderSeq(); };
+$('#seqDefault').onclick = ()=>{ settings.seq = null; save(); renderSeq(); };
+$('#seqPlay').onclick = ()=>{ if(anim||gifBusy||rec||seqLive) return; startSeq(bondById(sel.id), ()=>renderPanel()); renderPanel(); };
+$('#seqBack').onclick = ()=>{ if(!seqSnap || gifBusy || rec) return; seqLive = null; pushHistory(); poseRestore(seqSnap); save(); renderPanel(); };
+$('#seqRec').onclick = ()=>{ if(anim||rec||gifBusy||seqLive) return; settings.recFormat==='gif' ? makeGif('seq') : startRec('seq'); };
 $('#bondAxis').onclick = ()=>useBondAxis(sel.id);
 $('#bondPerp').onclick = ()=>useBondAxis(sel.id, 'perp');
 $('#bondH').onclick = ()=>alignBondOnScreen(bondById(sel.id),'h');
@@ -1167,9 +1241,12 @@ renderStep();
 document.querySelectorAll('[data-turn]').forEach(b=>b.onclick=()=>{ const [k,sg]=b.dataset.turn.split(','); queueTurn(k, turnStep*Number(sg)); });
 $('#viewReset').onclick = resetView;
 $('#showAxis').onchange = e=>{ settings.showAxis=e.target.checked; save(); rebuild(); };
-$('#resetSpin').onclick = ()=>{ spinAnim=null; spinAngle=0; tumbleAngle=0; applyWorld(); showSpinNow(); };
+$('#resetSpin').onclick = ()=>{ spinAnim=null; spinAngle=0; tumbleAngle=0; world.matrix.copy(axisHome); applyWorld(); rebuild(); showSpinNow(); };
 function showSpinNow(){ const deg = a=>{ let d=THREE.MathUtils.radToDeg(a)%360; if(d>180) d-=360; if(d<=-180) d+=360; return d.toFixed(0)+'°'; };
-  $('#spinNow').textContent = isPerp() ? `今の回転：垂直軸 ${deg(tumbleAngle)}、結合軸 ${deg(spinAngle)}（もとの向きから）` : `今の回転：${deg(spinAngle)}（もとの向きから）`; }
+  $('#spinNow').textContent = isPerp() ? `今の回転：垂直軸 ${deg(tumbleAngle)}、結合軸 ${deg(spinAngle)}（軸を選んだときから）` : `今の回転：${deg(spinAngle)}（軸を選んだときから）`; }
+let camAtStart = null; // a drag that really moved the view changes which way "screen vertical" points
+controls.addEventListener('start', ()=>{ camAtStart = camera.quaternion.clone(); });
+controls.addEventListener('end', ()=>{ if(camAtStart && camAtStart.angleTo(camera.quaternion) > 1e-3) viewMoved(); camAtStart = null; });
 $('#tidyHere').onclick = ()=>mutate(()=>tidy(sel.id));
 $('#applyAll').onclick = ()=>{ const n=nodeById(sel.id); mutate(()=>state.nodes.forEach(m=>{ if(m.shape===n.shape){ m.color=n.color; m.tex=n.tex; m.size=n.size; } })); };
 $('#tidyAll').onclick = ()=>mutate(()=>{ const done=new Set(); state.nodes.slice().sort((a,b)=>neighbors(b.id).length-neighbors(a.id).length).forEach(n=>{ if(done.has(n.id)) return; tidy(n.id); comp(n.id).forEach(i=>done.add(i)); }); });
@@ -1233,7 +1310,7 @@ $('#mirrorCopy').onclick = ()=>{
   });
   fitView();
 };
-$('#sample').onchange = e=>{ const v=e.target.value; e.target.value=''; if(!v) return; pushHistory(); const r=loadSample(v); sel = r && r.selBond ? {type:'bond',id:r.selBond} : null; changed();
+$('#sample').onchange = e=>{ const v=e.target.value; e.target.value=''; if(!v) return; pushHistory(); resetWorld(); seqSnap=null; const r=loadSample(v); sel = r && r.selBond ? {type:'bond',id:r.selBond} : null; changed();
   if(r && r.view){ camera.up.set(0,1,0); camera.position.copy(controls.target).add(V(...r.view)); camera.lookAt(controls.target); }
   fitView(); };
 
@@ -1333,6 +1410,7 @@ function loadSample(v){
 /* ---------- boot ---------- */
 let loaded=false;
 try{ const s=localStorage.getItem(STORE); if(s){ restore(s); loaded = state.nodes.length>0; } }catch(e){}
+settings.autoRotate = false; // auto-rotation is always off when the page opens
 if(!loaded) loadSample('ref');
 syncNid(); applyBg(); resize(); rebuild(); renderPanel(); banner();
 requestAnimationFrame(()=>{ resize(); fitView(); });
