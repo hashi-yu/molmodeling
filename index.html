@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>骨格モデラー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen workbench. 3D stage on the left, tool panel on the right; stacks on phones. */
+:root{
+  --paper:#eef0f4; --panel:#ffffff; --ink:#16181e; --muted:#5b6170; --line:#dadde4;
+  --accent:#2448b8; --accent-ink:#ffffff; --accent-soft:#e3e9fb; --danger:#b3261e; --chip:#f5f6f9;
+  --f-body:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#111318; --panel:#191b21; --ink:#e7e9ef; --muted:#9aa0ad; --line:#2c2f38;
+  --accent:#8aa6ff; --accent-ink:#0c1020; --accent-soft:#232a44; --danger:#ff8a80; --chip:#20232b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#111318; --panel:#191b21; --ink:#e7e9ef; --muted:#9aa0ad; --line:#2c2f38;
+  --accent:#8aa6ff; --accent-ink:#0c1020; --accent-soft:#232a44; --danger:#ff8a80; --chip:#20232b; color-scheme:dark}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:14px}
+*{box-sizing:border-box}
+button,select,input{font:inherit;color:inherit}
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:auto minmax(0,1fr)}
+header.bar{grid-column:1/-1;min-width:0;display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{display:flex;align-items:center;gap:10px;flex:none}
+.brand h1{font-size:17px;font-weight:700;margin:0;letter-spacing:.02em}
+.brand small{display:block;font-family:var(--f-mono);font-size:10.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.tools{display:flex;gap:6px;align-items:center;overflow-x:auto;min-width:0;flex:1;justify-content:flex-end;padding-block:2px}
+.btn{border:1px solid var(--line);background:var(--chip);border-radius:7px;padding:6px 11px;cursor:pointer;white-space:nowrap;line-height:1.3}
+.btn:hover{border-color:var(--accent)}
+.btn:focus-visible,.chip:focus-visible,.sw:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.btn.danger{color:var(--danger)}
+.btn:disabled{opacity:.45;cursor:default}
+select.btn{padding-right:6px}
+.stage{position:relative;min-height:0;background:var(--stagebg,#fff);overflow:hidden}
+#view{position:absolute;inset:0}
+#view canvas{display:block;width:100%;height:100%}
+.hud{position:absolute;left:12px;top:10px;font-family:var(--f-mono);font-size:11.5px;color:#4a505c;background:rgba(255,255,255,.78);padding:4px 8px;border-radius:6px;pointer-events:none}
+.stage.dark .hud{background:rgba(20,22,28,.7);color:#c9ced8}
+.hint{position:absolute;left:12px;bottom:10px;right:12px;font-size:11.5px;color:#5c6270;pointer-events:none;line-height:1.6}
+.stage.dark .hint{color:#9aa0ad}
+.tag{position:absolute;transform:translate(-50%,-50%);font-family:var(--f-mono);font-size:11px;font-weight:500;color:#fff;background:#d9480f;border-radius:10px;padding:1px 6px;pointer-events:none;white-space:nowrap}
+.mode-banner{position:absolute;top:10px;right:12px;background:var(--accent);color:var(--accent-ink);font-size:12px;padding:4px 10px;border-radius:6px}
+aside.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;min-height:0}
+section.sec{padding:14px 16px;border-bottom:1px solid var(--line);display:grid;gap:10px}
+section.sec h2{margin:0;font-size:11.5px;letter-spacing:.12em;color:var(--muted);font-weight:500}
+.note{margin:0;color:var(--muted);font-size:12.5px;line-height:1.6}
+.note b{color:var(--ink);font-weight:500}
+.kits{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.chip{border:1px solid var(--line);background:var(--chip);border-radius:8px;padding:4px 2px 6px;cursor:pointer;display:grid;justify-items:center;gap:0;font-size:12px}
+.chip:hover{border-color:var(--accent)}
+.chip img{width:46px;height:46px}
+.chip span{line-height:1.2}
+.field{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:8px}
+.field>label,.field>.lab{font-size:12.5px;color:var(--muted)}
+.field output{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.field select{border:1px solid var(--line);background:var(--chip);border-radius:7px;padding:5px 6px;grid-column:2/4}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.swatches{display:flex;flex-wrap:wrap;gap:5px;grid-column:2/4}
+.sw{width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,0,0,.18);cursor:pointer;padding:0}
+.sw.on{outline:2px solid var(--accent);outline-offset:2px}
+.sw.auto{background:conic-gradient(#c23a2e 0 25%,#2c5fd6 0 50%,#dfa31f 0 75%,#2f9a46 0);}
+input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-radius:6px;padding:0;background:none;cursor:pointer}
+.seg{display:flex;flex-wrap:wrap;gap:4px;grid-column:2/4}
+.seg button{border:1px solid var(--line);background:var(--chip);border-radius:6px;padding:4px 7px;font-size:12px;cursor:pointer;line-height:1.25}
+.seg button small{display:block;font-family:var(--f-mono);font-size:10px;color:var(--muted)}
+.seg button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.seg button.on small{color:var(--accent)}
+.btnrow{display:flex;flex-wrap:wrap;gap:6px}
+.angles{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);line-height:1.7;font-variant-numeric:tabular-nums}
+.chiral{font-size:12.5px;line-height:1.6;padding:8px 10px;border-radius:7px;background:var(--accent-soft)}
+.check{display:flex;gap:8px;align-items:center;font-size:12.5px}
+.modal{position:fixed;inset:0;background:rgba(10,12,18,.5);display:grid;place-items:center;padding:16px;z-index:10}
+.modal .box{background:var(--panel);border-radius:12px;max-width:720px;width:100%;max-height:90%;overflow:auto;padding:18px;display:grid;gap:12px}
+.modal h3{margin:0;font-size:16px}
+.modal img{max-width:100%;border:1px solid var(--line);border-radius:8px;background-color:#fff}
+.modal img.checker{background-image:linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%),linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%);background-size:16px 16px;background-position:0 0,8px 8px}
+.modal textarea{width:100%;min-height:220px;font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--chip);color:var(--ink)}
+.msg{font-size:12.5px;color:var(--muted);min-height:1em}
+@media (max-width:760px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 56svh auto;height:auto}
+  aside.panel{border-left:0;border-top:1px solid var(--line);overflow:visible}
+  header.bar{flex-wrap:wrap;gap:8px}
+  .tools{justify-content:flex-start;flex-basis:100%}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+        <g stroke="#8d939c" stroke-width="2.4"><line x1="17" y1="17" x2="6" y2="7"/><line x1="17" y1="17" x2="28" y2="6"/><line x1="17" y1="17" x2="7" y2="28"/><line x1="17" y1="17" x2="28" y2="27"/></g>
+        <polygon points="3,9 9,3 10,11" fill="#c23a2e"/><circle cx="28" cy="6" r="4.5" fill="#2c5fd6"/>
+        <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
+        <circle cx="17" cy="17" r="5" fill="#151515"/>
+      </svg>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler</small></div>
+    </div>
+    <div class="tools">
+      <select class="btn" id="sample" aria-label="サンプルを読み込む">
+        <option value="">サンプル…</option>
+        <option value="ref">4種の置換基（キラル）</option>
+        <option value="chain">炭素鎖（ジグザグ）</option>
+        <option value="ring">ベンゼン環</option>
+        <option value="branch">分岐（ネオペンタン型）</option>
+        <option value="planar">平面三角（sp²）</option>
+        <option value="octa">八面体錯体</option>
+        <option value="new">新規（原子1つ）</option>
+      </select>
+      <button class="btn" id="undo" title="元に戻す (Ctrl+Z)">↶ 戻す</button>
+      <button class="btn" id="redo" title="やり直す (Ctrl+Shift+Z)">↷ やり直す</button>
+      <button class="btn" id="bondMode" title="2つの形を順にクリックして結合をつなぐ／切る">結合モード</button>
+      <button class="btn" id="mirror" title="全体を鏡に映した形にする">鏡像に反転</button>
+      <button class="btn" id="mirrorCopy" title="鏡像を隣に並べる">鏡像を並べる</button>
+      <button class="btn" id="fit" title="全体を表示 (F)">全体表示</button>
+      <button class="btn" id="json">保存/読込</button>
+      <button class="btn primary" id="png">画像に書き出す</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div id="view"></div>
+    <div id="tags"></div>
+    <div class="hud" id="hud"></div>
+    <div class="mode-banner" id="banner" hidden></div>
+    <div class="hint">ドラッグで回転 ・ 右ドラッグで平行移動 ・ ホイールで拡大 ・ 形をドラッグで位置調整 ・ Shift+クリックで結合 ・ Delete で削除</div>
+  </main>
+
+  <aside class="panel">
+    <section class="sec">
+      <h2>追加</h2>
+      <p class="note" id="addTarget"></p>
+      <div class="kits" id="kits"></div>
+      <div class="field"><span class="lab">追加の色</span><div class="swatches" id="addSwatches"></div></div>
+    </section>
+
+    <section class="sec" id="secNone">
+      <h2>選択</h2>
+      <p class="note">形や結合をクリックすると、色・質感・大きさ・結合長などを編集できます。</p>
+    </section>
+
+    <section class="sec" id="secNode" hidden>
+      <h2>選択中の形</h2>
+      <div class="field"><label for="selShape">形</label><select id="selShape"></select></div>
+      <div class="field"><span class="lab">色</span><div class="swatches" id="selSwatches"></div></div>
+      <div class="field"><label for="selColor">任意の色</label><input type="color" id="selColor"><span></span></div>
+      <div class="field"><span class="lab">質感</span><div class="seg" id="selTex"></div></div>
+      <div class="field"><label for="selSize">大きさ</label><input type="range" id="selSize" min="0.15" max="1.6" step="0.01"><output id="selSizeOut"></output></div>
+      <div class="field"><label for="selTwist">ひねり</label><input type="range" id="selTwist" min="0" max="360" step="1"><output id="selTwistOut"></output></div>
+      <div class="field"><span class="lab">結合の向き</span><div class="seg" id="selHyb"></div></div>
+      <div class="angles" id="angles"></div>
+      <div class="chiral" id="chiralNote" hidden></div>
+      <div class="btnrow">
+        <button class="btn" id="tidyHere" title="この形を起点に、理想的な角度と結合長で並べ直す">ここから整列</button>
+        <button class="btn" id="applyAll" title="この色・質感・大きさを同じ形すべてに適用">同じ形に一括適用</button>
+        <button class="btn danger" id="delNode">削除</button>
+      </div>
+    </section>
+
+    <section class="sec" id="secBond" hidden>
+      <h2>選択中の結合</h2>
+      <div class="field"><span class="lab">結合次数</span><div class="seg" id="bondOrder"></div></div>
+      <div class="field"><label for="bondLenOne">長さ</label><input type="range" id="bondLenOne" min="0.8" max="6" step="0.01"><output id="bondLenOneOut"></output></div>
+      <p class="note">長さを変えると、結合の先にある部分がまとめて移動します。</p>
+      <div class="btnrow"><button class="btn danger" id="delBond">結合を切る</button></div>
+    </section>
+
+    <section class="sec">
+      <h2>全体の表示</h2>
+      <div class="field"><label for="bondLen">標準結合長</label><input type="range" id="bondLen" min="1" max="5" step="0.01"><output id="bondLenOut"></output></div>
+      <div class="field"><label for="bondRad">結合の太さ</label><input type="range" id="bondRad" min="0.03" max="0.35" step="0.005"><output id="bondRadOut"></output></div>
+      <div class="field"><span class="lab">結合の色</span><div class="swatches" id="bondSwatches"></div></div>
+      <div class="field"><span class="lab">結合の質感</span><div class="seg" id="bondTex"></div></div>
+      <div class="field"><span class="lab">背景</span><div class="seg" id="bgSeg"></div></div>
+      <label class="check"><input type="checkbox" id="showChiral"> キラル中心に印をつける</label>
+      <label class="check"><input type="checkbox" id="autoRot"> 自動で回転させる</label>
+      <div class="btnrow"><button class="btn" id="tidyAll">全体を整列</button></div>
+    </section>
+  </aside>
+</div>
+
+<div class="modal" id="modal" hidden><div class="box" id="modalBox"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+const $ = s => document.querySelector(s);
+const V = (x,y,z) => new THREE.Vector3(x,y,z);
+const STORE = 'skeleton-modeler-v1';
+
+/* ---------- catalogue ---------- */
+const SHAPES = {sphere:'球',tetra:'四面体',cube:'立方体',octa:'八面体',pyramid:'四角錐',cylinder:'円柱',dodeca:'十二面体',icosa:'二十面体',torus:'リング'};
+const KITS = [
+  {label:'原子',  shape:'sphere',  color:'#151515', size:0.42},
+  {label:'球',    shape:'sphere',  color:'#2c5fd6', size:0.55},
+  {label:'四面体',shape:'tetra',   color:'#c23a2e', size:0.52},
+  {label:'立方体',shape:'cube',    color:'#dfa31f', size:0.46},
+  {label:'八面体',shape:'octa',    color:'#2f9a46', size:0.52},
+  {label:'四角錐',shape:'pyramid', color:'#7a4cd0', size:0.5},
+  {label:'円柱',  shape:'cylinder',color:'#1f97a0', size:0.46},
+  {label:'十二面体',shape:'dodeca',color:'#e2722b', size:0.5},
+  {label:'リング',shape:'torus',   color:'#d3477e', size:0.5},
+];
+const PALETTE = ['#151515','#c23a2e','#2c5fd6','#dfa31f','#2f9a46','#7a4cd0','#1f97a0','#e2722b','#d3477e','#8d939c','#f2f1ec','#5b3a29'];
+const BOND_COLORS = ['#8d939c','#5f656e','#c9ccd1','#151515','#b08d57','#2c5fd6'];
+const TEX = {gloss:'つや',matte:'マット',metal:'金属',glass:'ガラス',stripe:'縞',dots:'水玉',wire:'線画'};
+const HYB = {
+  sp:  {label:'直線',  ang:'180°',  dirs:[[0,1,0],[0,-1,0]]},
+  sp2: {label:'平面三角',ang:'120°',dirs:[[0,1,0],[-0.8660254,-0.5,0],[0.8660254,-0.5,0]]},
+  sp3: {label:'四面体',ang:'109.5°',dirs:[[0,1,0],[0.9428090,-1/3,0],[-0.4714045,-1/3,0.8164966],[-0.4714045,-1/3,-0.8164966]]},
+  tbp: {label:'三方両錐',ang:'90/120°',dirs:[[0,1,0],[0,-1,0],[1,0,0],[-0.5,0,0.8660254],[-0.5,0,-0.8660254]]},
+  oct: {label:'八面体',ang:'90°',  dirs:[[0,1,0],[1,0,0],[0,0,1],[-1,0,0],[0,0,-1],[0,-1,0]]},
+};
+const BG = {white:['白','#ffffff'],grey:['薄灰','#e9ebef'],black:['黒','#0f1014']};
+const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.25));
+
+/* ---------- state ---------- */
+let state = {nodes:[],bonds:[]};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false};
+let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
+let undoStack = [], redoStack = [];
+let nid = 1;
+
+const nodeById = id => state.nodes.find(n => n.id === id);
+const bondById = id => state.bonds.find(b => b.id === id);
+const bondsOf = id => state.bonds.filter(b => b.a === id || b.b === id);
+const neighbors = id => bondsOf(id).map(b => b.a === id ? b.b : b.a);
+const P = n => V(n.x,n.y,n.z);
+const setP = (n,v) => { n.x=v.x; n.y=v.y; n.z=v.z; };
+const perp = (v,ax) => v.clone().sub(ax.clone().multiplyScalar(v.dot(ax)));
+function signedAngle(a,b,ax){ a=a.clone().normalize(); b=b.clone().normalize(); return Math.atan2(new THREE.Vector3().crossVectors(a,b).dot(ax), a.dot(b)); }
+function syncNid(){ nid = 1 + Math.max(0,...state.nodes.map(n=>n.id),...state.bonds.map(b=>b.id)); }
+
+function snapshot(){ return JSON.stringify({state,settings}); }
+function pushHistory(){ undoStack.push(snapshot()); if(undoStack.length>150) undoStack.shift(); redoStack = []; }
+function restore(s){ const o = JSON.parse(s); state = o.state; Object.assign(settings,o.settings||{}); syncNid(); if(sel && !(sel.type==='node'?nodeById(sel.id):bondById(sel.id))) sel=null; }
+function mutate(fn){ pushHistory(); fn(); changed(); }
+function changed(){ save(); rebuild(); renderPanel(); }
+function save(){ try{ localStorage.setItem(STORE, snapshot()); }catch(e){} }
+
+/* ---------- geometry rules ---------- */
+function frame(node, dirs, ref){
+  const T = HYB[node.hyb||'sp3'].dirs.map(a => V(...a).normalize());
+  if(!dirs.length){ T.forEach(t=>t.applyQuaternion(ROOT_Q)); return {T, assign:[], free:T.slice()}; }
+  const e1 = dirs[0].clone().normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(T[0], e1);
+  T.forEach(t => t.applyQuaternion(q));
+  const pt = T.length>1 ? perp(T[1],e1) : null;
+  if(pt && pt.lengthSq()>1e-6){
+    let pr = perp(dirs.length>1 ? dirs[1] : (ref || V(0,1,0)), e1);
+    if(pr.lengthSq()<1e-6) pr = perp(V(1,0,0),e1);
+    if(pr.lengthSq()<1e-6) pr = perp(V(0,0,1),e1);
+    const qr = new THREE.Quaternion().setFromAxisAngle(e1, signedAngle(pt,pr,e1));
+    T.forEach(t => t.applyQuaternion(qr));
+  }
+  const used = new Set([0]), assign = [0];
+  for(let i=1;i<dirs.length;i++){
+    let best=-1, bd=-2;
+    T.forEach((t,j)=>{ if(used.has(j)) return; const d=t.dot(dirs[i]); if(d>bd){bd=d;best=j;} });
+    if(best>=0) used.add(best);
+    assign.push(best);
+  }
+  return {T, assign, free:T.filter((_,j)=>!used.has(j))};
+}
+function refFor(node, from){ // continue the chain anti to the grandparent bond (zig-zag)
+  const g = neighbors(from.id).filter(x => x!==node.id).map(nodeById)[0];
+  return g ? P(from).sub(P(g)) : null;
+}
+function freeDirsFor(node){
+  const nb = neighbors(node.id).map(nodeById);
+  const dirs = nb.map(m => P(m).sub(P(node)).normalize());
+  const ref = nb.length===1 ? refFor(node, nb[0]) : null;
+  const f = frame(node, dirs, ref);
+  if(f.free.length) return f.free;
+  const s = dirs.reduce((a,d)=>a.sub(d), V(0,0,0));
+  if(s.lengthSq()>0.01) return [s.normalize()];
+  const r = perp(V(Math.random()-.5,Math.random()-.5,Math.random()-.5), dirs[0]||V(0,1,0));
+  return [r.normalize()];
+}
+function makeNode(kit, color, p){
+  const n = {id:nid++, shape:kit.shape, color: color==='auto'?kit.color:color, size:kit.size, tex:'gloss', twist:0, hyb:'sp3', x:p.x, y:p.y, z:p.z};
+  state.nodes.push(n); return n;
+}
+function addBond(a,b,order=1){ const bd={id:nid++,a,b,order}; state.bonds.push(bd); return bd; }
+function addBonded(parent, kit, color, len){
+  const d = freeDirsFor(parent)[0];
+  const n = makeNode(kit, color, P(parent).add(d.multiplyScalar(len||settings.bondLen)));
+  addBond(parent.id, n.id); return n;
+}
+function sideOf(bond, startId, blockId){ // nodes reachable from startId without crossing the bond
+  const seen = new Set([startId]), q=[startId];
+  while(q.length){ const c=q.shift(); for(const b of bondsOf(c)){ if(b===bond) continue; const o=b.a===c?b.b:b.a; if(!seen.has(o)){seen.add(o);q.push(o);} } }
+  return seen.has(blockId) ? new Set([startId]) : seen;
+}
+function setBondLength(bond, L){
+  const a=nodeById(bond.a), b=nodeById(bond.b);
+  const sa = sideOf(bond,a.id,b.id), sb = sideOf(bond,b.id,a.id);
+  const [fixed,moving,set] = sb.size<=sa.size ? [a,b,sb] : [b,a,sa];
+  const dir = P(moving).sub(P(fixed)); const cur = dir.length()||1;
+  const delta = dir.normalize().multiplyScalar(L-cur);
+  set.forEach(id => { const n=nodeById(id); setP(n,P(n).add(delta)); });
+}
+function tidy(rootId){
+  const L = settings.bondLen, root = nodeById(rootId); if(!root) return;
+  const placed = new Set([rootId]), parent = {}, q=[];
+  const nb0 = neighbors(rootId);
+  if(nb0.length){
+    const f = frame(root, nb0.map(id=>P(nodeById(id)).sub(P(root)).normalize()), null);
+    nb0.forEach((id,i)=>{ const d = f.assign[i]>=0 ? f.T[f.assign[i]] : P(nodeById(id)).sub(P(root)).normalize();
+      setP(nodeById(id), P(root).add(d.clone().multiplyScalar(L))); placed.add(id); parent[id]=rootId; q.push(id); });
+  }
+  while(q.length){
+    const id=q.shift(), n=nodeById(id), p=nodeById(parent[id]);
+    const kids = neighbors(id).filter(c => !placed.has(c)); if(!kids.length) continue;
+    const pp = parent[p.id]!=null ? nodeById(parent[p.id]) : null;
+    const f = frame(n, [P(p).sub(P(n)).normalize()], pp ? P(p).sub(P(pp)) : null);
+    const free = f.free.slice();
+    kids.forEach(c=>{
+      const cn=nodeById(c), cur=P(cn).sub(P(n)).normalize();
+      let bi=-1,bd=-2; free.forEach((d,i)=>{ const v=d.dot(cur); if(v>bd){bd=v;bi=i;} });
+      const d = bi>=0 ? free.splice(bi,1)[0] : cur;
+      setP(cn, P(n).add(d.clone().multiplyScalar(L))); placed.add(c); parent[c]=id; q.push(c);
+    });
+  }
+}
+
+/* ---------- chirality ---------- */
+function sig(id, from, depth){
+  const n = nodeById(id);
+  let s = n.shape+'/'+n.color.toLowerCase()+'/'+n.size.toFixed(2)+'/'+(n.tex||'gloss');
+  if(depth<6){ const kids = bondsOf(id).filter(b=>(b.a===id?b.b:b.a)!==from).map(b=>b.order+':'+sig(b.a===id?b.b:b.a,id,depth+1)).sort(); if(kids.length) s+='('+kids.join(',')+')'; }
+  return s;
+}
+function isStereocenter(id){
+  const nb = neighbors(id); if(nb.length!==4) return false;
+  return new Set(bondsOf(id).map(b=>b.order+':'+sig(b.a===id?b.b:b.a,id,0))).size===4;
+}
+
+/* ---------- three.js ---------- */
+const view = $('#view'), stage = $('#stage');
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.setClearColor(0x000000,0);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32,1,0.1,500);
+camera.position.set(0,0,16);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.12; controls.autoRotateSpeed = 1.2;
+
+function buildEnv(r){
+  const pm = new THREE.PMREMGenerator(r), es = new THREE.Scene();
+  const room = new THREE.Mesh(new THREE.BoxGeometry(12,12,12), new THREE.MeshBasicMaterial({color:0x3a3c40, side:THREE.BackSide}));
+  es.add(room);
+  const panel = (w,h,x,y,z,ry,rx,k)=>{ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h), new THREE.MeshBasicMaterial({color:new THREE.Color().setScalar(k), side:THREE.DoubleSide})); m.position.set(x,y,z); m.rotation.set(rx,ry,0); es.add(m); };
+  panel(6,4,-2,5.9,1,0,Math.PI/2,3);
+  panel(3,3,-5.9,2,2,Math.PI/2,0,1.8);
+  panel(3,5,5.9,0,-1,-Math.PI/2,0,1.1);
+  panel(5,2,0,1,-5.9,0,0,0.9);
+  const rt = pm.fromScene(es,0.035); pm.dispose(); return rt.texture;
+}
+scene.environment = buildEnv(renderer);
+scene.add(new THREE.HemisphereLight(0xffffff,0x9aa0aa,0.35));
+const key = new THREE.DirectionalLight(0xffffff,1.6); key.position.set(-5,8,7); camera.add(key); scene.add(camera);
+
+const geoCache = {};
+function geom(shape){
+  if(geoCache[shape]) return geoCache[shape];
+  let g;
+  switch(shape){
+    case 'tetra': g = new THREE.TetrahedronGeometry(1.35); g.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(V(-1,-1,-1).normalize(), V(0,-1,0)))); break;
+    case 'cube': g = new THREE.BoxGeometry(1.45,1.45,1.45); break;
+    case 'octa': g = new THREE.OctahedronGeometry(1.3); break;
+    case 'pyramid': g = new THREE.ConeGeometry(1.2,1.8,4); break;
+    case 'cylinder': g = new THREE.CylinderGeometry(0.85,0.85,1.5,48); break;
+    case 'dodeca': g = new THREE.DodecahedronGeometry(1.15); break;
+    case 'icosa': g = new THREE.IcosahedronGeometry(1.2); break;
+    case 'torus': g = new THREE.TorusGeometry(0.85,0.36,24,64); g.rotateX(Math.PI/2); break;
+    default: g = new THREE.SphereGeometry(1,56,36);
+  }
+  return geoCache[shape]=g;
+}
+function patternTex(kind){
+  const c=document.createElement('canvas'); c.width=c.height=256; const x=c.getContext('2d');
+  x.fillStyle='#ffffff'; x.fillRect(0,0,256,256); x.fillStyle='#6a6a6a';
+  if(kind==='stripe'){ for(let i=0;i<256;i+=64) x.fillRect(0,i,256,28); }
+  else { for(let i=0;i<8;i++) for(let j=0;j<8;j++){ x.beginPath(); x.arc(i*32+16+(j%2)*16,j*32+16,8,0,7); x.fill(); } }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(kind==='stripe'?1:2,kind==='stripe'?2:2); t.encoding=THREE.sRGBEncoding; return t;
+}
+const TEXMAP = {stripe:patternTex('stripe'), dots:patternTex('dots')};
+const matCache = {};
+function mat(color, tex){
+  const k = color+'|'+tex; if(matCache[k]) return matCache[k];
+  const c = new THREE.Color(color).convertSRGBToLinear();
+  const p = {color:c, roughness:0.24, metalness:0, clearcoat:0.8, clearcoatRoughness:0.12};
+  if(tex==='matte') Object.assign(p,{roughness:0.85,clearcoat:0});
+  if(tex==='metal') Object.assign(p,{roughness:0.28,metalness:1,clearcoat:0.3});
+  if(tex==='glass') Object.assign(p,{roughness:0.05,transparent:true,opacity:0.42,clearcoat:1,depthWrite:false});
+  if(tex==='stripe'||tex==='dots') p.map = TEXMAP[tex];
+  if(tex==='wire') Object.assign(p,{wireframe:true,roughness:0.5});
+  return matCache[k] = new THREE.MeshPhysicalMaterial(p);
+}
+const selMat = new THREE.MeshBasicMaterial({color:0x2f6bff, side:THREE.BackSide});
+const fromMat = new THREE.MeshBasicMaterial({color:0xff7a1a, side:THREE.BackSide});
+const bondGeo = new THREE.CylinderGeometry(1,1,1,28);
+const Y = V(0,1,0);
+
+const world = new THREE.Group(); scene.add(world);
+let pickables = [], exporting = false;
+
+function nodeQuat(n){
+  const nb = neighbors(n.id);
+  const q = new THREE.Quaternion();
+  if(nb.length){ q.setFromUnitVectors(Y, P(n).sub(P(nodeById(nb[0]))).normalize()); } else q.copy(ROOT_Q);
+  return q.multiply(new THREE.Quaternion().setFromAxisAngle(Y, (n.twist||0)*Math.PI/180));
+}
+function rebuild(){
+  world.clear(); pickables = [];
+  for(const n of state.nodes){
+    const m = new THREE.Mesh(geom(n.shape), mat(n.color, n.tex||'gloss'));
+    m.position.copy(P(n)); m.scale.setScalar(n.size); m.quaternion.copy(nodeQuat(n));
+    m.userData = {type:'node', id:n.id}; m.renderOrder = n.tex==='glass'?2:0;
+    world.add(m); pickables.push(m);
+    const hl = !exporting && ((sel && sel.type==='node' && sel.id===n.id) ? selMat : (bondFrom===n.id ? fromMat : null));
+    if(hl){ const o = new THREE.Mesh(geom(n.shape), hl); o.position.copy(m.position); o.quaternion.copy(m.quaternion); o.scale.setScalar(n.size*1.1+0.05); world.add(o); }
+  }
+  const bm = mat(settings.bondColor, settings.bondTex);
+  const bsel = mat('#2f6bff','gloss');
+  for(const b of state.bonds){
+    const A=nodeById(b.a), B=nodeById(b.b); if(!A||!B) continue;
+    const pa=P(A), pb=P(B), d=pb.clone().sub(pa), len=d.length(); if(len<1e-6) continue; d.normalize();
+    let side = null;
+    const third = neighbors(A.id).find(x=>x!==B.id) ?? neighbors(B.id).find(x=>x!==A.id);
+    if(third!=null){ const t=nodeById(third); side = perp(P(t).sub(neighbors(A.id).includes(third)?pa:pb), d); }
+    if(!side || side.lengthSq()<1e-6) side = perp(V(0,1,0),d); if(side.lengthSq()<1e-6) side = perp(V(1,0,0),d);
+    side.normalize();
+    const r = settings.bondRad, order = b.order||1;
+    const offs = order===1?[0]:order===2?[-1,1]:[-1,0,1];
+    const rr = order===1? r : r*0.62, gap = order===1?0 : r*1.55;
+    const q = new THREE.Quaternion().setFromUnitVectors(Y,d);
+    const isSel = !exporting && sel && sel.type==='bond' && sel.id===b.id;
+    for(const o of offs){
+      const c = new THREE.Mesh(bondGeo, isSel?bsel:bm);
+      c.scale.set(rr,len,rr); c.quaternion.copy(q);
+      c.position.copy(pa.clone().add(pb).multiplyScalar(0.5).add(side.clone().multiplyScalar(o*gap)));
+      c.userData = {type:'bond', id:b.id}; world.add(c); pickables.push(c);
+    }
+  }
+  updateHud();
+}
+
+function resize(){
+  const w=view.clientWidth, h=view.clientHeight; if(!w||!h) return;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view);
+
+function fitView(){
+  if(!state.nodes.length) return;
+  const box = new THREE.Box3(); state.nodes.forEach(n=>box.expandByPoint(P(n)));
+  const c = box.getCenter(new THREE.Vector3()); const s = box.getBoundingSphere(new THREE.Sphere()).radius + 1.2;
+  const dist = s/Math.sin(THREE.MathUtils.degToRad(camera.fov/2)) * (camera.aspect<1?1/camera.aspect*0.9:1);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  controls.target.copy(c); camera.position.copy(c.clone().add(dir.multiplyScalar(dist)));
+}
+
+/* tags for stereocenters */
+const tagLayer = $('#tags');
+function updateTags(){
+  tagLayer.textContent='';
+  if(!settings.showChiral) return;
+  const w=view.clientWidth,h=view.clientHeight;
+  for(const n of state.nodes){ if(!isStereocenter(n.id)) continue;
+    const v=P(n).add(camera.up.clone().multiplyScalar(n.size+0.35)).project(camera);
+    const el=document.createElement('div'); el.className='tag'; el.textContent='キラル中心';
+    el.style.left=((v.x+1)/2*w)+'px'; el.style.top=((1-v.y)/2*h)+'px'; tagLayer.appendChild(el); }
+}
+let tagTick=0;
+function loop(){ requestAnimationFrame(loop); controls.autoRotate=settings.autoRotate; controls.update(); renderer.render(scene,camera); if((tagTick++%2)===0) updateTags(); }
+
+/* ---------- picking & dragging ---------- */
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+function pick(e){
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(mouse,camera);
+  const hits = ray.intersectObjects(pickables,false);
+  return hits.length ? hits[0].object.userData : null;
+}
+let drag = null, downAt = null;
+stage.addEventListener('pointerdown', e=>{
+  if(e.target !== renderer.domElement || e.button!==0) { downAt=null; return; }
+  const hit = pick(e); downAt = {x:e.clientX,y:e.clientY,hit};
+  if(hit && hit.type==='node' && !bondMode && !e.shiftKey){
+    e.stopPropagation();
+    const n=nodeById(hit.id);
+    const normal = camera.getWorldDirection(new THREE.Vector3());
+    drag = {id:hit.id, plane:new THREE.Plane().setFromNormalAndCoplanarPoint(normal,P(n)), started:false};
+  }
+}, true);
+window.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  if(!drag.started){ if(Math.hypot(e.clientX-downAt.x,e.clientY-downAt.y)<4) return; pushHistory(); drag.started=true; sel={type:'node',id:drag.id}; renderPanel(); }
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(mouse,camera);
+  const p = new THREE.Vector3(); if(ray.ray.intersectPlane(drag.plane,p)){ setP(nodeById(drag.id),p); rebuild(); }
+});
+window.addEventListener('pointerup', e=>{
+  const wasDrag = drag && drag.started; drag = null;
+  if(wasDrag){ save(); renderPanel(); downAt=null; return; }
+  if(!downAt) return;
+  const moved = Math.hypot(e.clientX-downAt.x,e.clientY-downAt.y) > 4; const hit = downAt.hit; downAt=null;
+  if(moved) return;
+  onClick(hit, e.shiftKey);
+});
+function onClick(hit, shift){
+  if(bondMode || (shift && hit && hit.type==='node' && sel && sel.type==='node')){
+    if(!hit || hit.type!=='node'){ bondFrom=null; rebuild(); return; }
+    const from = bondMode ? bondFrom : sel.id;
+    if(from==null){ bondFrom = hit.id; rebuild(); banner(); return; }
+    if(from!==hit.id){
+      mutate(()=>{ const ex = state.bonds.find(b=>(b.a===from&&b.b===hit.id)||(b.b===from&&b.a===hit.id));
+        if(ex) state.bonds = state.bonds.filter(b=>b!==ex); else addBond(from,hit.id); });
+    }
+    bondFrom = null; sel = {type:'node',id:hit.id}; rebuild(); renderPanel(); banner(); return;
+  }
+  sel = hit ? {type:hit.type,id:hit.id} : null; rebuild(); renderPanel();
+}
+
+/* ---------- panel ---------- */
+const kitsEl = $('#kits');
+function swatchRow(el, colors, current, onPick, withAuto){
+  el.textContent='';
+  const mk=(c,title)=>{ const b=document.createElement('button'); b.className='sw'+(c==='auto'?' auto':'')+(String(current).toLowerCase()===c.toLowerCase()?' on':''); if(c!=='auto') b.style.background=c; b.title=title||c; b.setAttribute('aria-label',title||c); b.onclick=()=>onPick(c); el.appendChild(b); };
+  if(withAuto) mk('auto','形ごとの標準色');
+  colors.forEach(c=>mk(c));
+}
+function segRow(el, entries, current, onPick){
+  el.textContent='';
+  entries.forEach(([k,label,small])=>{ const b=document.createElement('button'); b.className=k===current?'on':''; b.innerHTML=label+(small?'<small>'+small+'</small>':''); b.onclick=()=>onPick(k); el.appendChild(b); });
+}
+$('#selShape').innerHTML = Object.entries(SHAPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+
+function renderPanel(){
+  const n = sel && sel.type==='node' ? nodeById(sel.id) : null;
+  const b = sel && sel.type==='bond' ? bondById(sel.id) : null;
+  $('#secNode').hidden = !n; $('#secBond').hidden = !b; $('#secNone').hidden = !!(n||b);
+  $('#addTarget').innerHTML = n ? `選択中の<b>${SHAPES[n.shape]}</b>に結合して追加します。空いている方向に自動で配置されます。` : '何も選択していないので、離れた位置に新しく置きます。形を選ぶとその形に結合します。';
+  swatchRow($('#addSwatches'), PALETTE, addColor, c=>{addColor=c; renderPanel();}, true);
+  if(n){
+    $('#selShape').value = n.shape;
+    swatchRow($('#selSwatches'), PALETTE, n.color, c=>mutate(()=>n.color=c));
+    $('#selColor').value = n.color;
+    segRow($('#selTex'), Object.entries(TEX).map(([k,v])=>[k,v]), n.tex||'gloss', t=>mutate(()=>n.tex=t));
+    $('#selSize').value = n.size; $('#selSizeOut').textContent = n.size.toFixed(2);
+    $('#selTwist').value = n.twist||0; $('#selTwistOut').textContent = (n.twist||0)+'°';
+    segRow($('#selHyb'), Object.entries(HYB).map(([k,v])=>[k,v.label,v.ang]), n.hyb||'sp3', h=>mutate(()=>{ n.hyb=h; tidy(n.id); }));
+    const nb = neighbors(n.id).map(nodeById);
+    const lines = [];
+    nb.forEach(m=>lines.push(`${SHAPES[m.shape]}まで  ${P(m).distanceTo(P(n)).toFixed(2)}`));
+    for(let i=0;i<nb.length;i++) for(let j=i+1;j<nb.length;j++){
+      const a=P(nb[i]).sub(P(n)), c=P(nb[j]).sub(P(n)); lines.push(`∠ ${SHAPES[nb[i].shape]}–${SHAPES[nb[j].shape]}  ${THREE.MathUtils.radToDeg(a.angleTo(c)).toFixed(1)}°`); }
+    $('#angles').innerHTML = lines.length ? lines.slice(0,12).join('<br>') : '結合はまだありません';
+    const cn = $('#chiralNote');
+    if(nb.length===4){ cn.hidden=false; cn.innerHTML = isStereocenter(n.id)
+      ? '<b>キラル中心です。</b>4つの置換基がすべて異なるので、鏡像と重ね合わせられません。「鏡像を並べる」で比べられます。'
+      : '4本の結合がありますが、同じ置換基が含まれるのでキラル中心ではありません。'; }
+    else cn.hidden=true;
+  }
+  if(b){
+    segRow($('#bondOrder'), [[1,'単結合'],[2,'二重'],[3,'三重']], b.order||1, o=>mutate(()=>b.order=o));
+    const L = P(nodeById(b.a)).distanceTo(P(nodeById(b.b)));
+    $('#bondLenOne').value = L; $('#bondLenOneOut').textContent = L.toFixed(2);
+  }
+  $('#bondLen').value = settings.bondLen; $('#bondLenOut').textContent = settings.bondLen.toFixed(2);
+  $('#bondRad').value = settings.bondRad; $('#bondRadOut').textContent = settings.bondRad.toFixed(3);
+  swatchRow($('#bondSwatches'), BOND_COLORS, settings.bondColor, c=>mutate(()=>settings.bondColor=c));
+  segRow($('#bondTex'), ['metal','gloss','matte','glass'].map(k=>[k,TEX[k]]), settings.bondTex, t=>mutate(()=>settings.bondTex=t));
+  segRow($('#bgSeg'), Object.entries(BG).map(([k,v])=>[k,v[0]]), settings.bg, k=>{ settings.bg=k; applyBg(); save(); renderPanel(); });
+  $('#showChiral').checked = settings.showChiral; $('#autoRot').checked = settings.autoRotate;
+  $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length;
+  $('#bondMode').classList.toggle('on', bondMode);
+}
+function applyBg(){ stage.style.setProperty('--stagebg', BG[settings.bg][1]); stage.classList.toggle('dark', settings.bg==='black'); }
+function updateHud(){
+  const sc = state.nodes.filter(n=>isStereocenter(n.id)).length;
+  $('#hud').textContent = `形 ${state.nodes.length} ・ 結合 ${state.bonds.length}` + (sc?` ・ キラル中心 ${sc}`:'');
+}
+function banner(){ const b=$('#banner'); b.hidden=!bondMode; if(bondMode) b.textContent = bondFrom==null ? '結合モード：1つ目の形をクリック' : '結合モード：つなぐ相手をクリック（既にあれば切れます）'; }
+
+/* live edits on sliders: one history entry per gesture */
+function liveRange(el, apply){
+  let pushed=false;
+  el.addEventListener('pointerdown',()=>{ if(!pushed){pushHistory();pushed=true;} });
+  el.addEventListener('keydown',()=>{ if(!pushed){pushHistory();pushed=true;} });
+  el.addEventListener('input',()=>{ apply(parseFloat(el.value)); rebuild(); renderPanelLite(); });
+  el.addEventListener('change',()=>{ pushed=false; save(); renderPanel(); });
+}
+function renderPanelLite(){
+  const n = sel && sel.type==='node' ? nodeById(sel.id) : null;
+  if(n){ $('#selSizeOut').textContent=n.size.toFixed(2); $('#selTwistOut').textContent=(n.twist||0)+'°'; }
+  $('#bondLenOut').textContent = settings.bondLen.toFixed(2); $('#bondRadOut').textContent = settings.bondRad.toFixed(3);
+  const b = sel && sel.type==='bond' ? bondById(sel.id) : null;
+  if(b) $('#bondLenOneOut').textContent = P(nodeById(b.a)).distanceTo(P(nodeById(b.b))).toFixed(2);
+}
+liveRange($('#selSize'), v=>{ nodeById(sel.id).size=v; });
+liveRange($('#selTwist'), v=>{ nodeById(sel.id).twist=v; });
+liveRange($('#bondRad'), v=>{ settings.bondRad=v; });
+liveRange($('#bondLenOne'), v=>{ setBondLength(bondById(sel.id), v); });
+liveRange($('#bondLen'), v=>{ // rescale the whole model about its centre
+  const old = settings.bondLen; settings.bondLen = v; if(!state.nodes.length) return;
+  const c = state.nodes.reduce((a,n)=>a.add(P(n)),V(0,0,0)).multiplyScalar(1/state.nodes.length);
+  state.nodes.forEach(n=>setP(n, P(n).sub(c).multiplyScalar(v/old).add(c)));
+});
+let colorPushed=false;
+$('#selColor').addEventListener('input', e=>{ if(!colorPushed){pushHistory();colorPushed=true;} nodeById(sel.id).color=e.target.value; rebuild(); });
+$('#selColor').addEventListener('change', ()=>{ colorPushed=false; save(); renderPanel(); });
+$('#selShape').addEventListener('change', e=>mutate(()=>nodeById(sel.id).shape=e.target.value));
+$('#delNode').onclick = ()=>deleteSel();
+$('#delBond').onclick = ()=>deleteSel();
+$('#tidyHere').onclick = ()=>mutate(()=>tidy(sel.id));
+$('#applyAll').onclick = ()=>{ const n=nodeById(sel.id); mutate(()=>state.nodes.forEach(m=>{ if(m.shape===n.shape){ m.color=n.color; m.tex=n.tex; m.size=n.size; } })); };
+$('#tidyAll').onclick = ()=>mutate(()=>{ const done=new Set(); state.nodes.slice().sort((a,b)=>neighbors(b.id).length-neighbors(a.id).length).forEach(n=>{ if(done.has(n.id)) return; tidy(n.id); comp(n.id).forEach(i=>done.add(i)); }); });
+$('#showChiral').onchange = e=>{ settings.showChiral=e.target.checked; save(); };
+$('#autoRot').onchange = e=>{ settings.autoRotate=e.target.checked; save(); };
+function comp(id){ const s=new Set([id]),q=[id]; while(q.length){ for(const o of neighbors(q.shift())) if(!s.has(o)){s.add(o);q.push(o);} } return s; }
+function deleteSel(){
+  if(!sel) return;
+  if(sel.type==='node'){ const id=sel.id; mutate(()=>{ state.nodes=state.nodes.filter(n=>n.id!==id); state.bonds=state.bonds.filter(b=>b.a!==id&&b.b!==id); }); }
+  else { const id=sel.id; mutate(()=>{ state.bonds=state.bonds.filter(b=>b.id!==id); }); }
+  sel=null; renderPanel(); rebuild();
+}
+
+/* kits with rendered thumbnails */
+function makeThumbs(){
+  const out=[];
+  try{
+    const r = new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+    r.setPixelRatio(2); r.setSize(46,46); r.outputEncoding=THREE.sRGBEncoding;  r.setClearColor(0,0);
+    const s=new THREE.Scene(); s.environment=buildEnv(r);
+    const cam=new THREE.PerspectiveCamera(32,1,0.1,50); cam.position.set(0,0,5.2);
+    const l=new THREE.DirectionalLight(0xffffff,1.6); l.position.set(-5,8,7); s.add(l, new THREE.HemisphereLight(0xffffff,0x9aa0aa,0.35));
+    for(const k of KITS){
+      const m=new THREE.Mesh(geom(k.shape), new THREE.MeshPhysicalMaterial({color:new THREE.Color(k.color).convertSRGBToLinear(),roughness:.24,clearcoat:.8,clearcoatRoughness:.12}));
+      m.rotation.set(0.5,0.6,0.1); m.scale.setScalar(k.shape==='sphere'?(k.size<0.5?1.05:1.2):1); s.add(m); r.render(s,cam); out.push(r.domElement.toDataURL()); s.remove(m);
+    }
+    r.dispose(); r.forceContextLoss&&r.forceContextLoss();
+  }catch(e){}
+  return out;
+}
+const thumbs = makeThumbs();
+KITS.forEach((k,i)=>{
+  const b=document.createElement('button'); b.className='chip'; b.title=k.label+'を追加';
+  b.innerHTML=(thumbs[i]?`<img alt="" src="${thumbs[i]}">`:`<span style="display:block;width:30px;height:30px;margin:8px;border-radius:50%;background:${k.color}"></span>`)+`<span>${k.label}</span>`;
+  b.onclick=()=>addKit(k); kitsEl.appendChild(b);
+});
+function addKit(k){
+  let n;
+  mutate(()=>{
+    const p = sel && sel.type==='node' ? nodeById(sel.id) : null;
+    if(p) n = addBonded(p,k,addColor);
+    else { const box=new THREE.Box3(); state.nodes.forEach(x=>box.expandByPoint(P(x))); const x = state.nodes.length? box.max.x+settings.bondLen*1.2 : 0; n = makeNode(k,addColor,V(x,0,0)); }
+  });
+  if(!(sel && sel.type==='node')) { sel={type:'node',id:n.id}; rebuild(); renderPanel(); }
+}
+
+/* ---------- header actions ---------- */
+$('#undo').onclick = undo; $('#redo').onclick = redo;
+function undo(){ if(!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); applyBg(); changed(); }
+function redo(){ if(!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); applyBg(); changed(); }
+$('#bondMode').onclick = ()=>{ bondMode=!bondMode; bondFrom=null; banner(); rebuild(); renderPanel(); };
+$('#fit').onclick = fitView;
+$('#mirror').onclick = ()=>mutate(()=>{ const c=state.nodes.reduce((a,n)=>a+n.x,0)/Math.max(1,state.nodes.length); state.nodes.forEach(n=>{ n.x=2*c-n.x; n.twist=(360-(n.twist||0))%360; }); });
+$('#mirrorCopy').onclick = ()=>{
+  mutate(()=>{
+    const box=new THREE.Box3(); state.nodes.forEach(n=>box.expandByPoint(P(n)));
+    const plane = box.max.x + settings.bondLen*0.9, map={};
+    state.nodes.slice().forEach(n=>{ const m={...n,id:nid++,x:2*plane-n.x,twist:(360-(n.twist||0))%360}; map[n.id]=m.id; state.nodes.push(m); });
+    state.bonds.slice().forEach(b=>addBond(map[b.a],map[b.b],b.order));
+  });
+  fitView();
+};
+$('#sample').onchange = e=>{ const v=e.target.value; e.target.value=''; if(!v) return; pushHistory(); loadSample(v); sel=null; changed(); fitView(); };
+
+document.addEventListener('keydown', e=>{
+  if(e.target.closest('input,textarea,select')) return;
+  const mod = e.ctrlKey||e.metaKey;
+  if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); }
+  else if(mod && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
+  else if(e.key==='Delete'||e.key==='Backspace'){ if(sel){ e.preventDefault(); deleteSel(); } }
+  else if(e.key==='Escape'){ sel=null; bondFrom=null; bondMode=false; banner(); rebuild(); renderPanel(); }
+  else if(e.key==='f'||e.key==='F') fitView();
+});
+
+/* ---------- modal: image + json ---------- */
+const modal=$('#modal'), box=$('#modalBox');
+function openModal(html){ box.innerHTML=html; modal.hidden=false; box.querySelector('[data-close]').onclick=()=>modal.hidden=true; }
+modal.addEventListener('click',e=>{ if(e.target===modal) modal.hidden=true; });
+
+let pngCanvas=null, pngBg='white';
+function renderPNG(){
+  exporting=true; rebuild();
+  const pr=renderer.getPixelRatio(); renderer.setPixelRatio(Math.min(4,pr*2)); resize();
+  renderer.render(scene,camera);
+  const src=renderer.domElement, c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
+  const x=c.getContext('2d'); if(pngBg!=='clear'){ x.fillStyle=BG[pngBg][1]; x.fillRect(0,0,c.width,c.height); } x.drawImage(src,0,0);
+  renderer.setPixelRatio(pr); resize(); exporting=false; rebuild();
+  pngCanvas=c; return c.toDataURL('image/png');
+}
+$('#png').onclick = ()=>{
+  pngBg = settings.bg;
+  openModal(`<h3>画像に書き出す</h3>
+    <div class="field"><span class="lab">背景</span><div class="seg" id="pngBg"></div></div>
+    <img id="pngImg" alt="書き出した分子モデルの画像">
+    <p class="note">画像を右クリック（スマホは長押し）して保存できます。コピーしてスライドや資料に直接貼ることもできます。</p>
+    <div class="btnrow"><button class="btn primary" id="pngCopy">画像をコピー</button><button class="btn" data-close>閉じる</button></div>
+    <div class="msg" id="pngMsg"></div>`);
+  const draw=()=>{ const img=$('#pngImg'); img.src=renderPNG(); img.classList.toggle('checker',pngBg==='clear');
+    segRow($('#pngBg'), [...Object.entries(BG).map(([k,v])=>[k,v[0]]),['clear','透明']], pngBg, k=>{pngBg=k; draw();}); };
+  draw();
+  $('#pngCopy').onclick = ()=>{
+    try{
+      const item = new ClipboardItem({'image/png': new Promise(res=>pngCanvas.toBlob(res,'image/png'))});
+      navigator.clipboard.write([item]).then(()=>$('#pngMsg').textContent='コピーしました。',()=>$('#pngMsg').textContent='この環境ではコピーできませんでした。画像を右クリックして保存してください。');
+    }catch(e){ $('#pngMsg').textContent='この環境ではコピーできませんでした。画像を右クリックして保存してください。'; }
+  };
+};
+$('#json').onclick = ()=>{
+  openModal(`<h3>保存と読み込み</h3>
+    <p class="note">作業内容はこのブラウザに自動保存されています。別の端末へ移したり残しておくときは、下のテキストをコピーしてください。読み込むときはテキストを貼り付けて「読み込む」を押します。</p>
+    <textarea id="jsonText" spellcheck="false"></textarea>
+    <div class="btnrow"><button class="btn" id="jsonCopy">コピー</button><button class="btn primary" id="jsonLoad">読み込む</button><button class="btn" data-close>閉じる</button></div>
+    <div class="msg" id="jsonMsg"></div>`);
+  const ta=$('#jsonText'); ta.value=JSON.stringify({state,settings},null,1);
+  $('#jsonCopy').onclick=()=>{ navigator.clipboard.writeText(ta.value).then(()=>$('#jsonMsg').textContent='コピーしました。',()=>{ ta.select(); $('#jsonMsg').textContent='選択しました。Ctrl+C でコピーしてください。'; }); };
+  $('#jsonLoad').onclick=()=>{ try{ const o=JSON.parse(ta.value); if(!o.state||!Array.isArray(o.state.nodes)) throw 0; pushHistory(); state=o.state; Object.assign(settings,o.settings||{}); syncNid(); sel=null; applyBg(); changed(); fitView(); modal.hidden=true; }
+    catch(e){ $('#jsonMsg').textContent='読み込めませんでした。このページで書き出したテキストを貼り付けてください。'; } };
+};
+
+/* ---------- samples ---------- */
+const kit = l => KITS.find(k=>k.label===l);
+function loadSample(v){
+  state={nodes:[],bonds:[]}; nid=1; settings.bondLen=2.4;
+  const c = makeNode(kit('原子'),'auto',V(0,0,0));
+  if(v==='ref'){ ['四面体','球','立方体','八面体'].forEach(l=>addBonded(c,kit(l),'auto')); }
+  if(v==='chain'){
+    c.hyb='sp3'; let prev=c; const chain=[c];
+    for(let i=0;i<4;i++){ prev=addBonded(prev,kit('原子'),'auto'); chain.push(prev); }
+    addBonded(chain[0],kit('球'),'auto'); addBonded(chain[4],kit('四面体'),'auto'); addBonded(chain[2],kit('立方体'),'auto');
+  }
+  if(v==='ring'){
+    state.nodes=[]; const L=settings.bondLen, ids=[];
+    for(let i=0;i<6;i++){ const a=i*Math.PI/3; const n=makeNode(kit('原子'),'auto',V(Math.cos(a)*L,Math.sin(a)*L,0)); n.hyb='sp2'; ids.push(n); }
+    for(let i=0;i<6;i++) addBond(ids[i].id, ids[(i+1)%6].id, i%2?1:2);
+    [['球',0],['四面体',2],['立方体',4]].forEach(([l,i])=>addBonded(ids[i],kit(l),'auto'));
+  }
+  if(v==='branch'){ for(let i=0;i<4;i++){ const m=addBonded(c,kit('原子'),'auto'); for(let j=0;j<3;j++) addBonded(m,kit('球'),'#c9ccd1').size=0.3; } }
+  if(v==='planar'){ c.hyb='sp2'; ['球','四面体','立方体'].forEach(l=>addBonded(c,kit(l),'auto')); }
+  if(v==='octa'){ c.hyb='oct'; c.color='#7a4cd0'; c.tex='metal'; c.size=0.55; ['球','球','八面体','八面体','立方体','四面体'].forEach(l=>addBonded(c,kit(l),'auto')); }
+}
+
+/* ---------- boot ---------- */
+let loaded=false;
+try{ const s=localStorage.getItem(STORE); if(s){ restore(s); loaded = state.nodes.length>0; } }catch(e){}
+if(!loaded) loadSample('ref');
+syncNid(); applyBg(); resize(); rebuild(); renderPanel(); banner();
+requestAnimationFrame(()=>{ resize(); fitView(); });
+loop();
+})();
+</script>
+</body>
+</html>
