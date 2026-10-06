@@ -89,6 +89,8 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
 .seg button.on small{color:var(--accent)}
 .btnrow{display:flex;flex-wrap:wrap;gap:6px}
 .angles{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);line-height:1.7;font-variant-numeric:tabular-nums}
+.num{width:72px;border:1px solid var(--line);background:var(--chip);border-radius:6px;padding:3px 6px;font-family:var(--f-mono);font-size:12px}
+.unit{align-self:center;font-size:12px;color:var(--muted)}
 .subh{margin:6px 0 0;font-size:12.5px;font-weight:500}
 #torsionCtl{display:grid;gap:10px}
 .tag.axial{background:#5b3fb8}
@@ -125,7 +127,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v12</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v13</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -216,7 +218,8 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <p class="note" id="torsionInfo"></p>
       <div id="torsionCtl">
         <div class="field"><span class="lab">少し回す</span><div class="seg" id="torsionNudge"></div></div>
-        <div class="field"><span class="lab">回す角度</span><div class="seg" id="torsionAngle"></div></div>
+        <div class="field"><label for="torsionDeg">回す角度</label><div class="seg"><input type="number" class="num" id="torsionDeg" min="-720" max="720" step="1"><span class="unit">°</span><span id="torsionAngle" class="seg" style="grid-column:auto"></span></div></div>
+        <div class="field" id="dihedralRow"><label for="dihedralTo">ねじれ角を</label><div class="seg"><input type="number" class="num" id="dihedralTo" min="-180" max="180" step="1"><span class="unit">° にする</span><button id="dihedralGo">実行</button></div></div>
         <div class="field"><label for="torsionDur">時間</label><input type="range" id="torsionDur" min="1" max="10" step="0.5"><output id="torsionDurOut"></output></div>
         <label class="check"><input type="checkbox" id="torsionFlip"> 反対側を回す</label>
         <div class="btnrow" style="margin-top:8px"><button class="btn primary" id="torsionPlay">▶ ねじれアニメーション</button><button class="btn rec" id="torsionRec">● アニメーションを録画</button></div>
@@ -244,6 +247,8 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <div id="axisOpts" class="btnrow" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="field" style="width:100%"><span class="lab">軸の向き</span><div class="seg" id="axisDirSeg"></div></div>
         <label class="check"><input type="checkbox" id="showAxis"> 軸を点線で表示する</label>
+        <div class="field" style="width:100%"><label for="spinDeg">軸まわりに</label><div class="seg"><input type="number" class="num" id="spinDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="spinGo">回す</button><button id="spinTo">この角度にする</button></div></div>
+        <p class="note" id="spinNow"></p>
         <button class="btn" id="resetSpin">回転をもとの向きに戻す</button>
       </div>
       <div class="field"><span class="lab">録画の形式</span><div class="seg" id="recFormat"></div></div>
@@ -692,6 +697,8 @@ function startTorsion(bond, deg, dur, onDone){
   anim = {bond, left:THREE.MathUtils.degToRad(deg), speed:Math.abs(THREE.MathUtils.degToRad(deg))/dur, onDone};
 }
 function runAnim(dt){
+  if(spinAnim){ const st = Math.sign(spinAnim.left)*Math.min(Math.abs(spinAnim.left), Math.PI*dt); spinAngle += st; spinAnim.left -= st; applyWorld();
+    if(Math.abs(spinAnim.left)<1e-9){ spinAnim=null; } showSpinNow(); }
   if(!anim) return;
   const d = Math.sign(anim.left) * Math.min(Math.abs(anim.left), anim.speed*dt);
   rotateSide(anim.bond, d); anim.left -= d; rebuild();
@@ -701,7 +708,7 @@ function runAnim(dt){
 function turnPlan(){ const T=settings.rotPeriod; return { secs:T, loop:true, advance:f=>spin(T*f),
   save:()=>({cp:camera.position.clone(), cu:camera.up.clone(), sa:spinAngle}),
   restore:s=>{ camera.position.copy(s.cp); camera.up.copy(s.cu); camera.lookAt(controls.target); spinAngle=s.sa; applyWorld(); } }; }
-function torsionPlan(bond){ const tot=THREE.MathUtils.degToRad(settings.torsionAngle); return { secs:settings.torsionDur, loop:settings.torsionAngle===360,
+function torsionPlan(bond){ const tot=THREE.MathUtils.degToRad(settings.torsionAngle); return { secs:settings.torsionDur, loop: settings.torsionAngle!==0 && settings.torsionAngle%360===0,
   advance:f=>{ rotateSide(bond, tot*f); rebuild(); },
   save:()=>state.nodes.map(n=>[n.x,n.y,n.z]),
   restore:s=>{ state.nodes.forEach((n,i)=>{ [n.x,n.y,n.z]=s[i]; }); rebuild(); } }; }
@@ -815,6 +822,17 @@ $('#torsionRec').onclick = ()=> { if(anim||rec||gifBusy) return; settings.recFor
 $('#torsionPlay').onclick = ()=> { if(anim||gifBusy) return; startTorsion(bondById(sel.id), settings.torsionAngle, settings.torsionDur); };
 $('#torsionDur').addEventListener('input', e=>{ settings.torsionDur=parseFloat(e.target.value); $('#torsionDurOut').textContent=settings.torsionDur+' 秒'; save(); });
 $('#torsionFlip').onchange = e=>{ settings.torsionFlip=e.target.checked; save(); };
+$('#torsionDeg').addEventListener('change', e=>{ const v=parseFloat(e.target.value); if(isFinite(v) && v!==0){ settings.torsionAngle=Math.max(-720,Math.min(720,v)); save(); renderPanel(); } });
+$('#dihedralGo').onclick = ()=>{ // turn by the difference between the current and the wanted twist angle
+  const b=bondById(sel.id), ai=axialInfo(b), want=parseFloat($('#dihedralTo').value); if(!ai || !isFinite(want) || anim) return;
+  const t = torsionSide(b); if(!t) return;
+  let d = ((want - ai.phi + 540) % 360) - 180;
+  startTorsion(b, d, Math.max(0.4, Math.abs(d)/180*settings.torsionDur));
+};
+let spinAnim = null;
+function spinBy(deg){ if(!axisBond()) return; spinAnim = {left:THREE.MathUtils.degToRad(deg)}; }
+$('#spinGo').onclick = ()=>{ const v=parseFloat($('#spinDeg').value); if(isFinite(v)) spinBy(v); };
+$('#spinTo').onclick = ()=>{ const v=parseFloat($('#spinDeg').value); if(!isFinite(v)) return; const cur=THREE.MathUtils.radToDeg(spinAngle); spinBy(((v-cur+540)%360)-180); };
 
 /* ---------- transparent GIF: one exact turn, rendered frame by frame ---------- */
 function medianCut(px, k){ // px: flat [r,g,b,...]; returns up to k colours
@@ -1021,7 +1039,10 @@ function renderPanel(){
         ? ' 今は両端の置換基が同じ平面にあり、<b>アキラル</b>です。'
         : ` 今のねじれ角は <b>${ai.phi>0?'+':'−'}${Math.abs(ai.phi).toFixed(0)}°</b>（軸性キラル）。180°回すと鏡像体（もう一方のエナンチオマー）になり、途中で一度平面（アキラル）を通ります。`) : '');
     segRow($('#torsionNudge'), [[-90,'−90°'],[-15,'−15°'],[15,'+15°'],[90,'+90°']], null, d=>{ if(!anim) startTorsion(b, d, Math.abs(d)/90*0.8); });
-    segRow($('#torsionAngle'), [[180,'180°'],[360,'360°']], settings.torsionAngle, d=>{ settings.torsionAngle=d; save(); renderPanel(); });
+    segRow($('#torsionAngle'), [[90,'90°'],[180,'180°'],[360,'360°']], settings.torsionAngle, d=>{ settings.torsionAngle=d; save(); renderPanel(); });
+    if(document.activeElement!==$('#torsionDeg')) $('#torsionDeg').value = settings.torsionAngle;
+    $('#dihedralRow').hidden = !ai;
+    if(ai && document.activeElement!==$('#dihedralTo') && $('#dihedralTo').value==='') $('#dihedralTo').value = Math.round(-ai.phi);
     $('#torsionDur').value = settings.torsionDur; $('#torsionDurOut').textContent = settings.torsionDur+' 秒';
     $('#torsionFlip').checked = settings.torsionFlip;
     $('#torsionRec').textContent = settings.recFormat==='gif' ? '● 透過GIFに書き出す' : '● アニメーションを録画';
@@ -1043,7 +1064,7 @@ function renderPanel(){
     : '回転軸にする結合が選ばれていません。結合をクリックして「この結合を回転軸にする」を押してください。';
   $('#axisOpts').hidden = settings.rotAxis!=='bond';
   segRow($('#axisDirSeg'), [['v','垂直'],['h','水平'],['free','そのまま']], axisDir(), d=>{ settings.axisDir=d; spinAngle=0; save(); rebuild(); if(d!=='free') sideView(); else fitView(); renderPanel(); });
-  $('#showAxis').checked = settings.showAxis;
+  $('#showAxis').checked = settings.showAxis; showSpinNow();
   if(b) $('#bondAxis').classList.toggle('on', !!ab && ab.id===b.id);
   segRow($('#recFormat'), [['video','動画（MP4）'],['gif','透過GIF']], settings.recFormat, k=>{ settings.recFormat=k; save(); renderPanel(); });
   segRow($('#gifSize'), [[360,'360px'],[480,'480px'],[720,'720px']], settings.gifWidth, k=>{ settings.gifWidth=k; save(); renderPanel(); });
@@ -1113,7 +1134,8 @@ renderStep();
 document.querySelectorAll('[data-turn]').forEach(b=>b.onclick=()=>{ const [k,sg]=b.dataset.turn.split(','); queueTurn(k, turnStep*Number(sg)); });
 $('#viewReset').onclick = resetView;
 $('#showAxis').onchange = e=>{ settings.showAxis=e.target.checked; save(); rebuild(); };
-$('#resetSpin').onclick = ()=>{ spinAngle=0; applyWorld(); };
+$('#resetSpin').onclick = ()=>{ spinAnim=null; spinAngle=0; applyWorld(); showSpinNow(); };
+function showSpinNow(){ let d=THREE.MathUtils.radToDeg(spinAngle)%360; if(d>180) d-=360; if(d<=-180) d+=360; $('#spinNow').textContent = `今の回転：${d.toFixed(0)}°（もとの向きから）`; }
 $('#tidyHere').onclick = ()=>mutate(()=>tidy(sel.id));
 $('#applyAll').onclick = ()=>{ const n=nodeById(sel.id); mutate(()=>state.nodes.forEach(m=>{ if(m.shape===n.shape){ m.color=n.color; m.tex=n.tex; m.size=n.size; } })); };
 $('#tidyAll').onclick = ()=>mutate(()=>{ const done=new Set(); state.nodes.slice().sort((a,b)=>neighbors(b.id).length-neighbors(a.id).length).forEach(n=>{ if(done.has(n.id)) return; tidy(n.id); comp(n.id).forEach(i=>done.add(i)); }); });
