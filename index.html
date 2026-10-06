@@ -60,7 +60,7 @@ select.btn{padding-right:6px}
 @keyframes blink{50%{opacity:0}}
 .btn.rec{color:#c62828}
 .btn.rec.on{background:#c62828;color:#fff;border-color:#c62828}
-.modal video{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#000}
+.modal video{max-width:100%;max-height:60vh;justify-self:center;border:1px solid var(--line);border-radius:8px;background:#000}
 .mode-banner{position:absolute;top:10px;right:12px;background:var(--accent);color:var(--accent-ink);font-size:12px;padding:4px 10px;border-radius:6px}
 aside.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;min-height:0}
 section.sec{padding:14px 16px;border-bottom:1px solid var(--line);display:grid;gap:10px}
@@ -94,7 +94,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
 .modal{position:fixed;inset:0;background:rgba(10,12,18,.5);display:grid;place-items:center;padding:16px;z-index:10}
 .modal .box{background:var(--panel);border-radius:12px;max-width:720px;width:100%;max-height:90%;overflow:auto;padding:18px;display:grid;gap:12px}
 .modal h3{margin:0;font-size:16px}
-.modal img{max-width:100%;border:1px solid var(--line);border-radius:8px;background-color:#fff}
+.modal img{max-width:100%;max-height:60vh;justify-self:center;border:1px solid var(--line);border-radius:8px;background-color:#fff}
 .modal img.checker{background-image:linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%),linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%);background-size:16px 16px;background-position:0 0,8px 8px}
 .modal textarea{width:100%;min-height:220px;font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--chip);color:var(--ink)}
 .msg{font-size:12.5px;color:var(--muted);min-height:1em}
@@ -121,7 +121,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v9</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v10</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -614,21 +614,50 @@ const fmtTime = t => Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0
 const MIMES = [['video/mp4;codecs=avc1','mp4'],['video/mp4','mp4'],['video/webm;codecs=vp9','webm'],['video/webm;codecs=vp8','webm'],['video/webm','webm']];
 function mimeList(){ return window.MediaRecorder ? MIMES.filter(([m])=>MediaRecorder.isTypeSupported(m)) : []; }
 let recCanvas = null, recCtx = null;
+/* crop exports to the molecule: find the drawn pixels, add a small margin */
+function alphaBox(src, scale){ // bounding box of non-transparent pixels, in src pixels (call right after render)
+  const w=Math.max(1,Math.round(src.width*scale)), h=Math.max(1,Math.round(src.height*scale));
+  const t=document.createElement('canvas'); t.width=w; t.height=h; const x=t.getContext('2d',{willReadFrequently:true});
+  x.drawImage(src,0,0,w,h); const d=x.getImageData(0,0,w,h).data;
+  let x0=w,y0=h,x1=-1,y1=-1;
+  for(let y=0;y<h;y++) for(let i=y*w*4+3, xx=0; xx<w; xx++, i+=4) if(d[i]>6){ if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(y<y0)y0=y; if(y>y1)y1=y; }
+  return x1<0 ? null : {x0:x0/scale, y0:y0/scale, x1:(x1+1)/scale, y1:(y1+1)/scale};
+}
+function padBox(b, src){ // margin = 8% of the larger side; clamp; even width/height
+  if(!b) return {x:0,y:0,w:src.width - src.width%2,h:src.height - src.height%2};
+  const m = Math.max(12, 0.08*Math.max(b.x1-b.x0, b.y1-b.y0));
+  let x=Math.max(0,Math.floor(b.x0-m)), y=Math.max(0,Math.floor(b.y0-m));
+  let w=Math.min(src.width,Math.ceil(b.x1+m))-x, h=Math.min(src.height,Math.ceil(b.y1+m))-y;
+  w-=w%2; h-=h%2; return {x,y,w:Math.max(2,w),h:Math.max(2,h)};
+}
+function measureTurn(samples){ // union of the molecule's on-screen area over one full turn; leaves the view as it was
+  const src=renderer.domElement, cp=camera.position.clone(), cu=camera.up.clone(), sa=spinAngle;
+  let u=null;
+  for(let i=0;i<samples;i++){
+    renderer.render(scene,camera); const b=alphaBox(src,0.5);
+    if(b) u = u ? {x0:Math.min(u.x0,b.x0),y0:Math.min(u.y0,b.y0),x1:Math.max(u.x1,b.x1),y1:Math.max(u.y1,b.y1)} : b;
+    if(samples>1) spin(settings.rotPeriod/samples);
+  }
+  camera.position.copy(cp); camera.up.copy(cu); camera.lookAt(controls.target); spinAngle=sa; applyWorld();
+  return padBox(u, src);
+}
+let recBox = null;
 function copyFrame(){ // paint the stage colour, then the 3D frame, onto an even-sized canvas (H.264 needs even sizes)
   if(!recCtx) return;
   recCtx.fillStyle = BG[settings.bg][1]; recCtx.fillRect(0,0,recCanvas.width,recCanvas.height);
-  recCtx.drawImage(renderer.domElement, 0, 0, recCanvas.width, recCanvas.height);
+  const b = recBox; recCtx.drawImage(renderer.domElement, b.x, b.y, b.w, b.h, 0, 0, recCanvas.width, recCanvas.height);
 }
 function startRec(oneTurn, mimes){
   if(rec) return;
   mimes = mimes || mimeList();
   const src = renderer.domElement;
   if(!mimes.length || !HTMLCanvasElement.prototype.captureStream){ showRecError('このブラウザは録画に対応していません。Chrome・Edge・Firefox・Safari の最新版でお試しください。'); return; }
-  const k = Math.min(1, 1920/src.width);
-  recCanvas = document.createElement('canvas');
-  recCanvas.width = Math.max(2, Math.floor(src.width*k/2)*2); recCanvas.height = Math.max(2, Math.floor(src.height*k/2)*2);
-  recCtx = recCanvas.getContext('2d');
   recording = true; rebuild();
+  recBox = measureTurn((oneTurn || settings.autoRotate) ? 24 : 1); // frame fits the molecule over the whole turn
+  const k = Math.min(1, 1920/recBox.w);
+  recCanvas = document.createElement('canvas');
+  recCanvas.width = Math.max(2, Math.floor(recBox.w*k/2)*2); recCanvas.height = Math.max(2, Math.floor(recBox.h*k/2)*2);
+  recCtx = recCanvas.getContext('2d');
   renderer.render(scene,camera); copyFrame();
   const [m,ext] = mimes[0];
   let mr;
@@ -740,12 +769,13 @@ async function makeGif(){
   gifBusy = true; recording = true; rebuild(); syncRecUi();
   const banner = $('#recBanner'); banner.hidden = false;
   try{
-    const src = renderer.domElement, W = Math.min(settings.gifWidth, src.width), H = Math.max(2, Math.round(src.height*W/src.width));
+    const src = renderer.domElement, box = measureTurn(24);
+    const W = Math.min(settings.gifWidth, box.w), H = Math.max(2, Math.round(box.h*W/box.w));
     const cv = document.createElement('canvas'); cv.width=W; cv.height=H; const cx = cv.getContext('2d',{willReadFrequently:true});
     const matte = new THREE.Color(BG[settings.bg][1]); const mr=matte.r*255, mg=matte.g*255, mb=matte.b*255;
     const delay = 6, N = Math.max(8, Math.round(settings.rotPeriod*100/delay)); // 6/100 s per frame
     const step = settings.rotPeriod / N;
-    const grab = () => { renderer.render(scene,camera); cx.clearRect(0,0,W,H); cx.drawImage(src,0,0,W,H); return cx.getImageData(0,0,W,H).data; };
+    const grab = () => { renderer.render(scene,camera); cx.clearRect(0,0,W,H); cx.drawImage(src,box.x,box.y,box.w,box.h,0,0,W,H); return cx.getImageData(0,0,W,H).data; };
     const blend = (d,i) => { const a=d[i+3]/255; return [d[i]*a+mr*(1-a), d[i+1]*a+mg*(1-a), d[i+2]*a+mb*(1-a)]; };
     // pass 1: sample colours from frames spread round the turn
     const S = 16, samples = [];
@@ -1065,8 +1095,9 @@ function renderPNG(){
   exporting=true; rebuild();
   const pr=renderer.getPixelRatio(); renderer.setPixelRatio(Math.min(4,pr*2)); resize();
   renderer.render(scene,camera);
-  const src=renderer.domElement, c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
-  const x=c.getContext('2d'); if(pngBg!=='clear'){ x.fillStyle=BG[pngBg][1]; x.fillRect(0,0,c.width,c.height); } x.drawImage(src,0,0);
+  const src=renderer.domElement, b=padBox(alphaBox(src,0.5), src), c=document.createElement('canvas'); c.width=b.w; c.height=b.h;
+  const x=c.getContext('2d'); if(pngBg!=='clear'){ x.fillStyle=BG[pngBg][1]; x.fillRect(0,0,c.width,c.height); }
+  renderer.render(scene,camera); x.drawImage(src,b.x,b.y,b.w,b.h,0,0,b.w,b.h);
   renderer.setPixelRatio(pr); resize(); exporting=false; rebuild();
   pngCanvas=c; return c.toDataURL('image/png');
 }
