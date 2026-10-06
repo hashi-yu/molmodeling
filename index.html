@@ -182,7 +182,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <div class="field"><span class="lab">結合次数</span><div class="seg" id="bondOrder"></div></div>
       <div class="field"><label for="bondLenOne">長さ</label><input type="range" id="bondLenOne" min="0.8" max="6" step="0.01"><output id="bondLenOneOut"></output></div>
       <p class="note">長さを変えると、結合の先にある部分がまとめて移動します。</p>
-      <div class="btnrow"><button class="btn danger" id="delBond">結合を切る</button></div>
+      <div class="btnrow"><button class="btn" id="bondAxis" title="この結合を軸にして分子全体を回転させる">⟳ この結合を回転軸にする</button><button class="btn danger" id="delBond">結合を切る</button></div>
     </section>
 
     <section class="sec">
@@ -201,6 +201,13 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <label class="check"><input type="checkbox" id="autoRot"> 自動で回転させる</label>
       <div class="field"><label for="rotPeriod">1回転</label><input type="range" id="rotPeriod" min="3" max="40" step="1"><output id="rotPeriodOut"></output></div>
       <div class="field"><span class="lab">向き</span><div class="seg" id="rotDir"></div></div>
+      <div class="field"><span class="lab">回転軸</span><div class="seg" id="rotAxis"></div></div>
+      <p class="note" id="axisNote"></p>
+      <div id="axisOpts" class="btnrow" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <label class="check"><input type="checkbox" id="axisUpright"> 軸を画面の縦に向ける</label>
+        <label class="check"><input type="checkbox" id="showAxis"> 軸を点線で表示する</label>
+        <button class="btn" id="resetSpin">回転をもとの向きに戻す</button>
+      </div>
       <div class="btnrow"><button class="btn rec" id="recTurn" title="ちょうど1回転する動画を録画">● 1回転を録画</button></div>
       <p class="note">録画は「● 録画」で開始、もう一度押すと停止します。「1回転を録画」は自動で回転させ、1周したところで止まります。動画には選択の枠やキラル中心の印は入りません。</p>
     </section>
@@ -245,7 +252,7 @@ const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.
 
 /* ---------- state ---------- */
 let state = {nodes:[],bonds:[]};
-let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisUpright:true,showAxis:true};
 let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
 let undoStack = [], redoStack = [];
 let nid = 1;
@@ -437,7 +444,22 @@ const bondGeo = new THREE.CylinderGeometry(1,1,1,28);
 const Y = V(0,1,0);
 
 const world = new THREE.Group(); scene.add(world);
-let pickables = [], exporting = false, rec = null;
+let pickables = [], exporting = false, rec = null, spinAngle = 0;
+world.matrixAutoUpdate = false;
+const nodeName = n => (KITS.find(k=>k.shape===n.shape && k.color.toLowerCase()===n.color.toLowerCase())||{label:SHAPES[n.shape]}).label;
+const axisBond = () => settings.rotAxis==='bond' && settings.rotBond!=null ? (bondById(settings.rotBond) || null) : null;
+function axisInfo(b){ const A=P(nodeById(b.a)), B=P(nodeById(b.b)); return {a:B.clone().sub(A).normalize(), c:A.clone().add(B).multiplyScalar(0.5)}; }
+function applyWorld(){ // spin the whole model about the chosen bond, pivoting on the bond's midpoint
+  const b = axisBond();
+  if(!b){ world.matrix.identity(); world.matrixWorldNeedsUpdate = true; return; }
+  const {a,c} = axisInfo(b);
+  const qAlign = settings.axisUpright ? new THREE.Quaternion().setFromUnitVectors(a, Y) : new THREE.Quaternion();
+  const q = new THREE.Quaternion().setFromAxisAngle(settings.axisUpright ? Y : a, spinAngle).multiply(qAlign);
+  world.matrix.makeTranslation(c.x,c.y,c.z).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-c.x,-c.y,-c.z));
+  world.matrixWorldNeedsUpdate = true;
+}
+const W = v => v.applyMatrix4(world.matrix);              // model -> screen-space world
+const L = v => v.applyMatrix4(world.matrix.clone().invert()); // world -> model
 
 function nodeQuat(n){
   const nb = neighbors(n.id);
@@ -477,6 +499,15 @@ function rebuild(){
       c.userData = {type:'bond', id:b.id}; world.add(c); pickables.push(c);
     }
   }
+  const ab = axisBond();
+  if(ab && settings.showAxis && !exporting && !rec){
+    const {a,c} = axisInfo(ab);
+    let R = 1.5; state.nodes.forEach(n=>R=Math.max(R, P(n).distanceTo(c)+n.size+0.8));
+    const g = new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(a,-R), c.clone().addScaledVector(a,R)]);
+    const line = new THREE.Line(g, new THREE.LineDashedMaterial({color:0xd9480f, dashSize:0.28, gapSize:0.2}));
+    line.computeLineDistances(); world.add(line);
+  }
+  applyWorld();
   updateHud();
 }
 
@@ -488,7 +519,7 @@ new ResizeObserver(resize).observe(view);
 
 function fitView(){
   if(!state.nodes.length) return;
-  const box = new THREE.Box3(); state.nodes.forEach(n=>box.expandByPoint(P(n)));
+  applyWorld(); const box = new THREE.Box3(); state.nodes.forEach(n=>box.expandByPoint(W(P(n))));
   const c = box.getCenter(new THREE.Vector3()); const s = box.getBoundingSphere(new THREE.Sphere()).radius + 1.2;
   const dist = s/Math.sin(THREE.MathUtils.degToRad(camera.fov/2)) * (camera.aspect<1?1/camera.aspect*0.9:1);
   const dir = camera.position.clone().sub(controls.target).normalize();
@@ -502,7 +533,7 @@ function updateTags(){
   if(!settings.showChiral) return;
   const w=view.clientWidth,h=view.clientHeight;
   for(const n of state.nodes){ if(!isStereocenter(n.id)) continue;
-    const v=P(n).add(camera.up.clone().multiplyScalar(n.size+0.35)).project(camera);
+    const v=W(P(n)).add(camera.up.clone().multiplyScalar(n.size+0.35)).project(camera);
     const el=document.createElement('div'); el.className='tag'; el.textContent='キラル中心';
     el.style.left=((v.x+1)/2*w)+'px'; el.style.top=((1-v.y)/2*h)+'px'; tagLayer.appendChild(el); }
 }
@@ -510,6 +541,7 @@ let tagTick=0;
 let lastT = performance.now();
 function spin(dt){ // rotate the camera around the target; time-based so one turn takes exactly rotPeriod seconds
   const ang = settings.rotDir * 2*Math.PI * dt / settings.rotPeriod;
+  if(axisBond()){ spinAngle = (spinAngle + ang) % (2*Math.PI); applyWorld(); return; }
   const off = camera.position.clone().sub(controls.target);
   off.applyAxisAngle(camera.up.clone().normalize(), -ang);
   camera.position.copy(controls.target).add(off);
@@ -606,7 +638,7 @@ stage.addEventListener('pointerdown', e=>{
     e.stopPropagation();
     const n=nodeById(hit.id);
     const normal = camera.getWorldDirection(new THREE.Vector3());
-    drag = {id:hit.id, plane:new THREE.Plane().setFromNormalAndCoplanarPoint(normal,P(n)), started:false};
+    drag = {id:hit.id, plane:new THREE.Plane().setFromNormalAndCoplanarPoint(normal,W(P(n))), started:false};
   }
 }, true);
 window.addEventListener('pointermove', e=>{
@@ -615,7 +647,7 @@ window.addEventListener('pointermove', e=>{
   const r = renderer.domElement.getBoundingClientRect();
   mouse.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
   ray.setFromCamera(mouse,camera);
-  const p = new THREE.Vector3(); if(ray.ray.intersectPlane(drag.plane,p)){ setP(nodeById(drag.id),p); rebuild(); }
+  const p = new THREE.Vector3(); if(ray.ray.intersectPlane(drag.plane,p)){ setP(nodeById(drag.id),L(p)); rebuild(); }
 });
 window.addEventListener('pointerup', e=>{
   const wasDrag = drag && drag.started; drag = null;
@@ -669,9 +701,9 @@ function renderPanel(){
     segRow($('#selHyb'), Object.entries(HYB).map(([k,v])=>[k,v.label,v.ang]), n.hyb||'sp3', h=>mutate(()=>{ n.hyb=h; tidy(n.id); }));
     const nb = neighbors(n.id).map(nodeById);
     const lines = [];
-    nb.forEach(m=>lines.push(`${SHAPES[m.shape]}まで  ${P(m).distanceTo(P(n)).toFixed(2)}`));
+    nb.forEach(m=>lines.push(`${nodeName(m)}まで  ${P(m).distanceTo(P(n)).toFixed(2)}`));
     for(let i=0;i<nb.length;i++) for(let j=i+1;j<nb.length;j++){
-      const a=P(nb[i]).sub(P(n)), c=P(nb[j]).sub(P(n)); lines.push(`∠ ${SHAPES[nb[i].shape]}–${SHAPES[nb[j].shape]}  ${THREE.MathUtils.radToDeg(a.angleTo(c)).toFixed(1)}°`); }
+      const a=P(nb[i]).sub(P(n)), c=P(nb[j]).sub(P(n)); lines.push(`∠ ${nodeName(nb[i])}–${nodeName(nb[j])}  ${THREE.MathUtils.radToDeg(a.angleTo(c)).toFixed(1)}°`); }
     $('#angles').innerHTML = lines.length ? lines.slice(0,12).join('<br>') : '結合はまだありません';
     const cn = $('#chiralNote');
     if(nb.length===4){ cn.hidden=false; cn.innerHTML = isStereocenter(n.id)
@@ -692,6 +724,16 @@ function renderPanel(){
   $('#showChiral').checked = settings.showChiral; $('#autoRot').checked = settings.autoRotate;
   $('#rotBtn').classList.toggle('on', settings.autoRotate);
   $('#rotPeriod').value = settings.rotPeriod; $('#rotPeriodOut').textContent = settings.rotPeriod+' 秒';
+  const ab = axisBond();
+  segRow($('#rotAxis'), [['view','画面の縦軸'],['bond','選んだ結合']], settings.rotAxis, k=>{
+    if(k==='bond' && sel && sel.type==='bond') return useBondAxis(sel.id);
+    settings.rotAxis=k; spinAngle=0; save(); rebuild(); renderPanel(); });
+  $('#axisNote').innerHTML = settings.rotAxis!=='bond' ? '画面の縦方向を軸に、見る向きを回します。'
+    : ab ? `<b>${nodeName(nodeById(ab.a))}–${nodeName(nodeById(ab.b))}</b> の結合を軸に、分子全体を回します。軸を変えるには、別の結合をクリックして「この結合を回転軸にする」を押してください。`
+    : '回転軸にする結合が選ばれていません。結合をクリックして「この結合を回転軸にする」を押してください。';
+  $('#axisOpts').hidden = settings.rotAxis!=='bond';
+  $('#axisUpright').checked = settings.axisUpright; $('#showAxis').checked = settings.showAxis;
+  if(b) $('#bondAxis').classList.toggle('on', !!ab && ab.id===b.id);
   segRow($('#rotDir'), [[1,'左回り'],[-1,'右回り']], settings.rotDir, d=>{ settings.rotDir=d; save(); renderPanel(); });
 
   $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length;
@@ -734,6 +776,20 @@ $('#selColor').addEventListener('change', ()=>{ colorPushed=false; save(); rende
 $('#selShape').addEventListener('change', e=>mutate(()=>nodeById(sel.id).shape=e.target.value));
 $('#delNode').onclick = ()=>deleteSel();
 $('#delBond').onclick = ()=>deleteSel();
+function sideView(){ // look at the model from the side so an upright axis stands vertical on screen
+  const off = camera.position.clone().sub(controls.target); off.y = 0;
+  if(off.lengthSq()<1e-6) off.set(0,0,1);
+  camera.position.copy(controls.target).add(off.normalize());
+  fitView();
+}
+function useBondAxis(id){
+  settings.rotAxis='bond'; settings.rotBond=id; spinAngle=0; settings.autoRotate=true;
+  save(); rebuild(); if(settings.axisUpright) sideView(); renderPanel();
+}
+$('#bondAxis').onclick = ()=>useBondAxis(sel.id);
+$('#axisUpright').onchange = e=>{ settings.axisUpright=e.target.checked; spinAngle=0; save(); rebuild(); if(settings.axisUpright) sideView(); else fitView(); };
+$('#showAxis').onchange = e=>{ settings.showAxis=e.target.checked; save(); rebuild(); };
+$('#resetSpin').onclick = ()=>{ spinAngle=0; applyWorld(); };
 $('#tidyHere').onclick = ()=>mutate(()=>tidy(sel.id));
 $('#applyAll').onclick = ()=>{ const n=nodeById(sel.id); mutate(()=>state.nodes.forEach(m=>{ if(m.shape===n.shape){ m.color=n.color; m.tex=n.tex; m.size=n.size; } })); };
 $('#tidyAll').onclick = ()=>mutate(()=>{ const done=new Set(); state.nodes.slice().sort((a,b)=>neighbors(b.id).length-neighbors(a.id).length).forEach(n=>{ if(done.has(n.id)) return; tidy(n.id); comp(n.id).forEach(i=>done.add(i)); }); });
