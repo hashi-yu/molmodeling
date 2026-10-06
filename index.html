@@ -44,8 +44,16 @@ select.btn{padding-right:6px}
 #view canvas{display:block;width:100%;height:100%}
 .hud{position:absolute;left:12px;top:10px;font-family:var(--f-mono);font-size:11.5px;color:#4a505c;background:rgba(255,255,255,.78);padding:4px 8px;border-radius:6px;pointer-events:none}
 .stage.dark .hud{background:rgba(20,22,28,.7);color:#c9ced8}
-.hint{position:absolute;left:12px;bottom:10px;right:12px;font-size:11.5px;color:#5c6270;pointer-events:none;line-height:1.6}
+.hint{position:absolute;left:12px;bottom:10px;right:200px;font-size:11.5px;color:#5c6270;pointer-events:none;line-height:1.6}
 .stage.dark .hint{color:#9aa0ad}
+.pad{position:absolute;right:12px;bottom:10px;display:grid;gap:6px;justify-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+.padgrid{display:grid;grid-template-columns:repeat(3,38px);gap:4px}
+.padgrid button{height:34px;border:1px solid var(--line);background:var(--chip);border-radius:7px;cursor:pointer;font-size:14px;padding:0}
+.padgrid button:hover{border-color:var(--accent)}
+.padgrid #viewReset{font-size:11px}
+.padstep{display:flex;gap:3px}
+.padstep button{border:1px solid var(--line);background:var(--chip);border-radius:6px;padding:2px 5px;font-family:var(--f-mono);font-size:10.5px;cursor:pointer}
+.padstep button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 .tag{position:absolute;transform:translate(-50%,-50%);font-family:var(--f-mono);font-size:11px;font-weight:500;color:#fff;background:#d9480f;border-radius:10px;padding:1px 6px;pointer-events:none;white-space:nowrap}
 .rec-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#c62828;color:#fff;font-family:var(--f-mono);font-size:12px;padding:4px 12px;border-radius:14px;pointer-events:none}
 .rec-banner::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-right:7px;vertical-align:1px;animation:blink 1s steps(2) infinite}
@@ -91,6 +99,8 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
 .modal textarea{width:100%;min-height:220px;font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--chip);color:var(--ink)}
 .msg{font-size:12.5px;color:var(--muted);min-height:1em}
 @media (max-width:760px){
+  .pad{padding:6px}
+  .padgrid{grid-template-columns:repeat(3,34px)}
   .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 56svh auto;height:auto}
   aside.panel{border-left:0;border-top:1px solid var(--line);overflow:visible}
   header.bar{flex-wrap:wrap;gap:8px}
@@ -111,7 +121,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v7</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v8</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -143,7 +153,21 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
     <div class="hud" id="hud"></div>
     <div class="mode-banner" id="banner" hidden></div>
     <div class="rec-banner" id="recBanner" hidden></div>
-    <div class="hint">ドラッグで回転 ・ 右ドラッグで平行移動 ・ ホイールで拡大 ・ 形をドラッグで位置調整 ・ Shift+クリックで結合 ・ Delete で削除</div>
+    <div class="pad" id="pad" aria-label="向きの調整">
+      <div class="padgrid">
+        <button data-turn="z,1" title="画面内で左に回す (Q)">⟲</button>
+        <button data-turn="x,-1" title="上へ回す (↑)">▲</button>
+        <button data-turn="z,-1" title="画面内で右に回す (E)">⟳</button>
+        <button data-turn="y,-1" title="左へ回す (←)">◀</button>
+        <button id="viewReset" title="正面に戻す (0)">正面</button>
+        <button data-turn="y,1" title="右へ回す (→)">▶</button>
+        <span></span>
+        <button data-turn="x,1" title="下へ回す (↓)">▼</button>
+        <span></span>
+      </div>
+      <div class="padstep" id="padStep"></div>
+    </div>
+    <div class="hint">ドラッグで自由に回転 ・ 矢印キー／右下のボタンで決まった角度ずつ回転 ・ 右ドラッグで平行移動 ・ ホイールで拡大 ・ 形をドラッグで位置調整 ・ Shift+クリックで結合 ・ Delete で削除</div>
   </main>
 
   <aside class="panel">
@@ -217,7 +241,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
 <div class="modal" id="modal" hidden><div class="box" id="modalBox"></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TrackballControls.js"></script>
 <script>
 (function(){
 const $ = s => document.querySelector(s);
@@ -383,8 +407,10 @@ view.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32,1,0.1,500);
 camera.position.set(0,0,16);
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.dampingFactor = 0.12;
+// Trackball: free rotation in every direction (no pole limit), right-drag pans, wheel zooms
+const controls = new THREE.TrackballControls(camera, renderer.domElement);
+controls.rotateSpeed = 3.2; controls.zoomSpeed = 1.2; controls.panSpeed = 0.9; controls.dynamicDampingFactor = 0.18;
+controls.keys = [null,null,null];
 
 function buildEnv(r){
   const pm = new THREE.PMREMGenerator(r), es = new THREE.Scene();
@@ -514,7 +540,7 @@ function rebuild(){
 
 function resize(){
   const w=view.clientWidth, h=view.clientHeight; if(!w||!h) return;
-  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize();
 }
 new ResizeObserver(resize).observe(view);
 
@@ -547,11 +573,35 @@ function spin(dt){ // rotate the camera around the target; time-based so one tur
   off.applyAxisAngle(camera.up.clone().normalize(), -ang);
   camera.position.copy(controls.target).add(off);
 }
+/* step rotations about the screen axes (animated) */
+let turnQueue = [];
+function screenAxis(k){
+  const m = camera.matrixWorld;
+  return new THREE.Vector3().setFromMatrixColumn(m, k==='x'?0:k==='y'?1:2).normalize();
+}
+function orbitBy(axis, ang){ // turn the model by +ang about a screen axis = turn the camera by -ang
+  const q = new THREE.Quaternion().setFromAxisAngle(axis, -ang);
+  const off = camera.position.clone().sub(controls.target).applyQuaternion(q);
+  camera.up.applyQuaternion(q).normalize();
+  camera.position.copy(controls.target).add(off); camera.lookAt(controls.target);
+}
+function queueTurn(k, deg){ turnQueue.push({k, left:THREE.MathUtils.degToRad(deg)}); }
+function runTurns(dt){
+  const t = turnQueue[0]; if(!t) return;
+  const step = Math.sign(t.left) * Math.min(Math.abs(t.left), Math.PI*2.2*dt);
+  orbitBy(screenAxis(t.k), step); t.left -= step;
+  if(Math.abs(t.left) < 1e-6) turnQueue.shift();
+}
+function resetView(){
+  turnQueue = []; spinAngle = 0; applyWorld();
+  camera.up.set(0,1,0); camera.position.copy(controls.target).add(new THREE.Vector3(0,0,1)); camera.lookAt(controls.target);
+  fitView();
+}
 function loop(now){
   requestAnimationFrame(loop);
   const dt = Math.min(0.1, ((now||performance.now()) - lastT)/1000); lastT = now||performance.now();
   if(settings.autoRotate && !drag){ spin(dt); if(rec && rec.turnLeft!=null){ rec.turnLeft -= dt; if(rec.turnLeft<=0) stopRec(); } }
-  controls.update(); renderer.render(scene,camera); if(rec) copyFrame(); if((tagTick++%2)===0) updateTags();
+  runTurns(dt); controls.update(); renderer.render(scene,camera); if(rec) copyFrame(); if((tagTick++%2)===0) updateTags();
   if(rec) $('#recBanner').textContent = '録画中 ' + fmtTime((performance.now()-rec.t0)/1000);
 }
 const fmtTime = t => Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
@@ -798,6 +848,7 @@ $('#selShape').addEventListener('change', e=>mutate(()=>nodeById(sel.id).shape=e
 $('#delNode').onclick = ()=>deleteSel();
 $('#delBond').onclick = ()=>deleteSel();
 function sideView(){ // look at the model from the side so an upright axis stands vertical on screen
+  camera.up.set(0,1,0);
   const off = camera.position.clone().sub(controls.target); off.y = 0;
   if(off.lengthSq()<1e-6) off.set(0,0,1);
   camera.position.copy(controls.target).add(off.normalize());
@@ -808,6 +859,11 @@ function useBondAxis(id){
   save(); rebuild(); if(settings.axisUpright) sideView(); renderPanel();
 }
 $('#bondAxis').onclick = ()=>useBondAxis(sel.id);
+let turnStep = 15;
+function renderStep(){ segRow($('#padStep'), [1,5,15,45,90].map(d=>[d,d+'°']), turnStep, d=>{ turnStep=d; renderStep(); }); }
+renderStep();
+document.querySelectorAll('[data-turn]').forEach(b=>b.onclick=()=>{ const [k,sg]=b.dataset.turn.split(','); queueTurn(k, turnStep*Number(sg)); });
+$('#viewReset').onclick = resetView;
 $('#axisUpright').onchange = e=>{ settings.axisUpright=e.target.checked; spinAngle=0; save(); rebuild(); if(settings.axisUpright) sideView(); else fitView(); };
 $('#showAxis').onchange = e=>{ settings.showAxis=e.target.checked; save(); rebuild(); };
 $('#resetSpin').onclick = ()=>{ spinAngle=0; applyWorld(); };
@@ -884,6 +940,11 @@ document.addEventListener('keydown', e=>{
   else if(e.key==='Delete'||e.key==='Backspace'){ if(sel){ e.preventDefault(); deleteSel(); } }
   else if(e.key==='Escape'){ sel=null; bondFrom=null; bondMode=false; banner(); rebuild(); renderPanel(); }
   else if(e.key==='f'||e.key==='F') fitView();
+  else if(e.key.startsWith('Arrow')){ e.preventDefault(); const st = e.shiftKey?1:turnStep;
+    ({ArrowLeft:()=>queueTurn('y',-st),ArrowRight:()=>queueTurn('y',st),ArrowUp:()=>queueTurn('x',-st),ArrowDown:()=>queueTurn('x',st)})[e.key]?.(); }
+  else if(e.key==='q'||e.key==='Q') queueTurn('z', e.shiftKey?1:turnStep);
+  else if(e.key==='e'||e.key==='E') queueTurn('z', -(e.shiftKey?1:turnStep));
+  else if(e.key==='0') resetView();
   else if(e.key==='r'||e.key==='R'){ settings.autoRotate=!settings.autoRotate; save(); renderPanel(); }
 });
 
