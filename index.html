@@ -47,6 +47,12 @@ select.btn{padding-right:6px}
 .hint{position:absolute;left:12px;bottom:10px;right:12px;font-size:11.5px;color:#5c6270;pointer-events:none;line-height:1.6}
 .stage.dark .hint{color:#9aa0ad}
 .tag{position:absolute;transform:translate(-50%,-50%);font-family:var(--f-mono);font-size:11px;font-weight:500;color:#fff;background:#d9480f;border-radius:10px;padding:1px 6px;pointer-events:none;white-space:nowrap}
+.rec-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#c62828;color:#fff;font-family:var(--f-mono);font-size:12px;padding:4px 12px;border-radius:14px;pointer-events:none}
+.rec-banner::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-right:7px;vertical-align:1px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.btn.rec{color:#c62828}
+.btn.rec.on{background:#c62828;color:#fff;border-color:#c62828}
+.modal video{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#000}
 .mode-banner{position:absolute;top:10px;right:12px;background:var(--accent);color:var(--accent-ink);font-size:12px;padding:4px 10px;border-radius:6px}
 aside.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;min-height:0}
 section.sec{padding:14px 16px;border-bottom:1px solid var(--line);display:grid;gap:10px}
@@ -124,6 +130,8 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <button class="btn" id="mirror" title="全体を鏡に映した形にする">鏡像に反転</button>
       <button class="btn" id="mirrorCopy" title="鏡像を隣に並べる">鏡像を並べる</button>
       <button class="btn" id="fit" title="全体を表示 (F)">全体表示</button>
+      <button class="btn" id="rotBtn" title="自動回転のオン／オフ (R)">⟳ 自動回転</button>
+      <button class="btn rec" id="recBtn" title="画面を動画として録画">● 録画</button>
       <button class="btn" id="json">保存/読込</button>
       <button class="btn primary" id="png">画像に書き出す</button>
     </div>
@@ -134,6 +142,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
     <div id="tags"></div>
     <div class="hud" id="hud"></div>
     <div class="mode-banner" id="banner" hidden></div>
+    <div class="rec-banner" id="recBanner" hidden></div>
     <div class="hint">ドラッグで回転 ・ 右ドラッグで平行移動 ・ ホイールで拡大 ・ 形をドラッグで位置調整 ・ Shift+クリックで結合 ・ Delete で削除</div>
   </main>
 
@@ -184,8 +193,16 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <div class="field"><span class="lab">結合の質感</span><div class="seg" id="bondTex"></div></div>
       <div class="field"><span class="lab">背景</span><div class="seg" id="bgSeg"></div></div>
       <label class="check"><input type="checkbox" id="showChiral"> キラル中心に印をつける</label>
-      <label class="check"><input type="checkbox" id="autoRot"> 自動で回転させる</label>
       <div class="btnrow"><button class="btn" id="tidyAll">全体を整列</button></div>
+    </section>
+
+    <section class="sec">
+      <h2>自動回転と録画</h2>
+      <label class="check"><input type="checkbox" id="autoRot"> 自動で回転させる</label>
+      <div class="field"><label for="rotPeriod">1回転</label><input type="range" id="rotPeriod" min="3" max="40" step="1"><output id="rotPeriodOut"></output></div>
+      <div class="field"><span class="lab">向き</span><div class="seg" id="rotDir"></div></div>
+      <div class="btnrow"><button class="btn rec" id="recTurn" title="ちょうど1回転する動画を録画">● 1回転を録画</button></div>
+      <p class="note">録画は「● 録画」で開始、もう一度押すと停止します。「1回転を録画」は自動で回転させ、1周したところで止まります。動画には選択の枠やキラル中心の印は入りません。</p>
     </section>
   </aside>
 </div>
@@ -228,7 +245,7 @@ const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.
 
 /* ---------- state ---------- */
 let state = {nodes:[],bonds:[]};
-let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1};
 let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
 let undoStack = [], redoStack = [];
 let nid = 1;
@@ -360,7 +377,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32,1,0.1,500);
 camera.position.set(0,0,16);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.dampingFactor = 0.12; controls.autoRotateSpeed = 1.2;
+controls.enableDamping = true; controls.dampingFactor = 0.12;
 
 function buildEnv(r){
   const pm = new THREE.PMREMGenerator(r), es = new THREE.Scene();
@@ -420,7 +437,7 @@ const bondGeo = new THREE.CylinderGeometry(1,1,1,28);
 const Y = V(0,1,0);
 
 const world = new THREE.Group(); scene.add(world);
-let pickables = [], exporting = false;
+let pickables = [], exporting = false, rec = null;
 
 function nodeQuat(n){
   const nb = neighbors(n.id);
@@ -435,7 +452,7 @@ function rebuild(){
     m.position.copy(P(n)); m.scale.setScalar(n.size); m.quaternion.copy(nodeQuat(n));
     m.userData = {type:'node', id:n.id}; m.renderOrder = n.tex==='glass'?2:0;
     world.add(m); pickables.push(m);
-    const hl = !exporting && ((sel && sel.type==='node' && sel.id===n.id) ? selMat : (bondFrom===n.id ? fromMat : null));
+    const hl = !exporting && !rec && ((sel && sel.type==='node' && sel.id===n.id) ? selMat : (bondFrom===n.id ? fromMat : null));
     if(hl){ const o = new THREE.Mesh(geom(n.shape), hl); o.position.copy(m.position); o.quaternion.copy(m.quaternion); o.scale.setScalar(n.size*1.1+0.05); world.add(o); }
   }
   const bm = mat(settings.bondColor, settings.bondTex);
@@ -452,7 +469,7 @@ function rebuild(){
     const offs = order===1?[0]:order===2?[-1,1]:[-1,0,1];
     const rr = order===1? r : r*0.62, gap = order===1?0 : r*1.55;
     const q = new THREE.Quaternion().setFromUnitVectors(Y,d);
-    const isSel = !exporting && sel && sel.type==='bond' && sel.id===b.id;
+    const isSel = !exporting && !rec && sel && sel.type==='bond' && sel.id===b.id;
     for(const o of offs){
       const c = new THREE.Mesh(bondGeo, isSel?bsel:bm);
       c.scale.set(rr,len,rr); c.quaternion.copy(q);
@@ -490,7 +507,71 @@ function updateTags(){
     el.style.left=((v.x+1)/2*w)+'px'; el.style.top=((1-v.y)/2*h)+'px'; tagLayer.appendChild(el); }
 }
 let tagTick=0;
-function loop(){ requestAnimationFrame(loop); controls.autoRotate=settings.autoRotate; controls.update(); renderer.render(scene,camera); if((tagTick++%2)===0) updateTags(); }
+let lastT = performance.now();
+function spin(dt){ // rotate the camera around the target; time-based so one turn takes exactly rotPeriod seconds
+  const ang = settings.rotDir * 2*Math.PI * dt / settings.rotPeriod;
+  const off = camera.position.clone().sub(controls.target);
+  off.applyAxisAngle(camera.up.clone().normalize(), -ang);
+  camera.position.copy(controls.target).add(off);
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.1, ((now||performance.now()) - lastT)/1000); lastT = now||performance.now();
+  if(settings.autoRotate && !drag){ spin(dt); if(rec && rec.turnLeft!=null){ rec.turnLeft -= dt; if(rec.turnLeft<=0) stopRec(); } }
+  controls.update(); renderer.render(scene,camera); if((tagTick++%2)===0) updateTags();
+  if(rec) $('#recBanner').textContent = '録画中 ' + fmtTime((performance.now()-rec.t0)/1000);
+}
+const fmtTime = t => Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+
+/* ---------- recording ---------- */
+function pickMime(){
+  if(!window.MediaRecorder) return null;
+  for(const [m,ext] of [['video/mp4;codecs=avc1','mp4'],['video/mp4','mp4'],['video/webm;codecs=vp9','webm'],['video/webm;codecs=vp8','webm'],['video/webm','webm']])
+    if(MediaRecorder.isTypeSupported(m)) return {m,ext};
+  return null;
+}
+function startRec(oneTurn){
+  if(rec) return;
+  const mt = pickMime(), cv = renderer.domElement;
+  if(!mt || !cv.captureStream){ showRecError('このブラウザは録画に対応していません。Chrome・Edge・Firefox・Safari の最新版でお試しください。'); return; }
+  renderer.setClearColor(new THREE.Color(BG[settings.bg][1]), 1); // video has no transparency: paint the stage colour
+  let mr;
+  try{ mr = new MediaRecorder(cv.captureStream(60), {mimeType:mt.m, videoBitsPerSecond:12e6}); }
+  catch(e){ renderer.setClearColor(0x000000,0); showRecError('録画を開始できませんでした。'); return; }
+  const chunks = [];
+  mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = () => { renderer.setClearColor(0x000000,0); showVideo(new Blob(chunks,{type:mt.m.split(';')[0]}), mt.ext); };
+  rec = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate};
+  if(oneTurn){ settings.autoRotate = true; rec.turnLeft = settings.rotPeriod; }
+  sel = null; bondFrom = null; rebuild(); renderPanel();
+  mr.start(250); syncRecUi();
+}
+function stopRec(){
+  if(!rec) return;
+  const r = rec; rec = null;
+  if(r.turnLeft!=null) settings.autoRotate = r.prevRotate;
+  try{ r.mr.stop(); }catch(e){}
+  rebuild(); renderPanel(); syncRecUi();
+}
+function syncRecUi(){
+  $('#recBanner').hidden = !rec;
+  $('#recBtn').classList.toggle('on', !!rec); $('#recBtn').textContent = rec ? '■ 録画を停止' : '● 録画';
+  $('#recTurn').disabled = !!rec;
+}
+function showRecError(msg){ openModal(`<h3>録画</h3><p class="note">${msg}</p><div class="btnrow"><button class="btn" data-close>閉じる</button></div>`); }
+let lastVideoUrl = null;
+function showVideo(blob, ext){
+  if(lastVideoUrl) URL.revokeObjectURL(lastVideoUrl);
+  const url = lastVideoUrl = URL.createObjectURL(blob);
+  const name = 'molmodel-' + new Date().toISOString().slice(0,19).replace(/[-:T]/g,'') + '.' + ext;
+  openModal(`<h3>録画した動画</h3>
+    <video src="${url}" controls autoplay loop muted playsinline></video>
+    <p class="note">${ext.toUpperCase()} 形式・${(blob.size/1048576).toFixed(1)} MB。「動画を保存」で保存できます。保存できないときは動画を右クリック（スマホは長押し）して保存するか、GitHub Pages 版（https://hashi-yu.github.io/molmodeling/）で録画してください。</p>
+    <div class="btnrow"><a class="btn primary" href="${url}" download="${name}">動画を保存</a><button class="btn" data-close>閉じる</button></div>`);
+}
+$('#recBtn').onclick = ()=> rec ? stopRec() : startRec(false);
+$('#recTurn').onclick = ()=> startRec(true);
+$('#rotBtn').onclick = ()=>{ settings.autoRotate = !settings.autoRotate; save(); renderPanel(); };
 
 /* ---------- picking & dragging ---------- */
 const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
@@ -593,6 +674,10 @@ function renderPanel(){
   segRow($('#bondTex'), ['metal','gloss','matte','glass'].map(k=>[k,TEX[k]]), settings.bondTex, t=>mutate(()=>settings.bondTex=t));
   segRow($('#bgSeg'), Object.entries(BG).map(([k,v])=>[k,v[0]]), settings.bg, k=>{ settings.bg=k; applyBg(); save(); renderPanel(); });
   $('#showChiral').checked = settings.showChiral; $('#autoRot').checked = settings.autoRotate;
+  $('#rotBtn').classList.toggle('on', settings.autoRotate);
+  $('#rotPeriod').value = settings.rotPeriod; $('#rotPeriodOut').textContent = settings.rotPeriod+' 秒';
+  segRow($('#rotDir'), [[1,'左回り'],[-1,'右回り']], settings.rotDir, d=>{ settings.rotDir=d; save(); renderPanel(); });
+
   $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length;
   $('#bondMode').classList.toggle('on', bondMode);
 }
@@ -637,7 +722,8 @@ $('#tidyHere').onclick = ()=>mutate(()=>tidy(sel.id));
 $('#applyAll').onclick = ()=>{ const n=nodeById(sel.id); mutate(()=>state.nodes.forEach(m=>{ if(m.shape===n.shape){ m.color=n.color; m.tex=n.tex; m.size=n.size; } })); };
 $('#tidyAll').onclick = ()=>mutate(()=>{ const done=new Set(); state.nodes.slice().sort((a,b)=>neighbors(b.id).length-neighbors(a.id).length).forEach(n=>{ if(done.has(n.id)) return; tidy(n.id); comp(n.id).forEach(i=>done.add(i)); }); });
 $('#showChiral').onchange = e=>{ settings.showChiral=e.target.checked; save(); };
-$('#autoRot').onchange = e=>{ settings.autoRotate=e.target.checked; save(); };
+$('#autoRot').onchange = e=>{ settings.autoRotate=e.target.checked; save(); renderPanel(); };
+$('#rotPeriod').addEventListener('input', e=>{ settings.rotPeriod=parseFloat(e.target.value); $('#rotPeriodOut').textContent = settings.rotPeriod+' 秒'; save(); });
 function comp(id){ const s=new Set([id]),q=[id]; while(q.length){ for(const o of neighbors(q.shift())) if(!s.has(o)){s.add(o);q.push(o);} } return s; }
 function deleteSel(){
   if(!sel) return;
@@ -705,6 +791,7 @@ document.addEventListener('keydown', e=>{
   else if(e.key==='Delete'||e.key==='Backspace'){ if(sel){ e.preventDefault(); deleteSel(); } }
   else if(e.key==='Escape'){ sel=null; bondFrom=null; bondMode=false; banner(); rebuild(); renderPanel(); }
   else if(e.key==='f'||e.key==='F') fitView();
+  else if(e.key==='r'||e.key==='R'){ settings.autoRotate=!settings.autoRotate; save(); renderPanel(); }
 });
 
 /* ---------- modal: image + json ---------- */
