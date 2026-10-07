@@ -135,7 +135,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v20</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v21</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -816,8 +816,14 @@ function exportFrame(pivot, mult){
   const cur = camera.position.distanceTo(t), need = R/Math.sin(half), zoom = Math.max(1, need/cur);
   const setDist = d=>{ camera.position.sub(t).setLength(d).add(t); camera.updateMatrixWorld(); };
   if(zoom>1) setDist(need);
-  const ratio = Math.min(4, pr*(mult||1)*zoom);
-  if(ratio!==pr){ renderer.setPixelRatio(ratio); resize(); }
+  // keep the drawing buffer within what the GPU and browser will actually allocate (Safari caps a WebGL canvas near 4096×4096);
+  // if the browser hands back a smaller buffer than asked for, the picture and the crop no longer line up, so step down until they match
+  const gl = renderer.getContext(), cw = Math.max(1, view.clientWidth), ch = Math.max(1, view.clientHeight);
+  const side = Math.min(4096, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
+  let ratio = Math.max(1, Math.min(4, pr*(mult||1)*zoom, side/cw, side/ch, Math.sqrt(16e6/(cw*ch))));
+  if(ratio!==pr){ renderer.setPixelRatio(ratio); resize();
+    const el = renderer.domElement;
+    for(let i=0; i<8 && ratio>1 && (gl.drawingBufferWidth<el.width || gl.drawingBufferHeight<el.height); i++){ ratio = Math.max(1, ratio*0.8); renderer.setPixelRatio(ratio); resize(); } }
   return { restore:()=>{ if(zoom>1) setDist(cur); if(ratio!==pr){ renderer.setPixelRatio(pr); resize(); } } };
 }
 const planPivot = (kind, tb) => tb ? bondMidW(tb) : (kind==='turn' && axisBond()) ? bondMidW(axisBond()) : null;
