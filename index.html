@@ -135,7 +135,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v19</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v20</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -806,6 +806,21 @@ function playTorsion(bond, onDone){ // play the twist as set in the panel (same 
   if(!torsionSide(bond) || anim) return;
   pushHistory(); anim = {bond, motion:torsionMotion(), t:0, cur:0, onDone};
 }
+/* exports see the whole molecule even when the view is zoomed in past its edges: if any part could leave the picture during the motion,
+   the camera backs straight off (same direction) and the pixel ratio rises to keep the detail. restore() puts the distance and ratio back. */
+function exportFrame(pivot, mult){
+  const t = controls.target, piv = pivot || t.clone(), pr = renderer.getPixelRatio();
+  let R = 0; state.nodes.forEach(n=>{ R = Math.max(R, W(P(n)).distanceTo(piv) + n.size*1.6); }); // every turn the exports make pivots on piv
+  R += piv.distanceTo(t) + 0.2;
+  const hv = THREE.MathUtils.degToRad(camera.fov/2), half = Math.min(hv, Math.atan(Math.tan(hv)*camera.aspect));
+  const cur = camera.position.distanceTo(t), need = R/Math.sin(half), zoom = Math.max(1, need/cur);
+  const setDist = d=>{ camera.position.sub(t).setLength(d).add(t); camera.updateMatrixWorld(); };
+  if(zoom>1) setDist(need);
+  const ratio = Math.min(4, pr*(mult||1)*zoom);
+  if(ratio!==pr){ renderer.setPixelRatio(ratio); resize(); }
+  return { restore:()=>{ if(zoom>1) setDist(cur); if(ratio!==pr){ renderer.setPixelRatio(pr); resize(); } } };
+}
+const planPivot = (kind, tb) => tb ? bondMidW(tb) : (kind==='turn' && axisBond()) ? bondMidW(axisBond()) : null;
 function measurePlan(plan, S){ // union of the molecule's on-screen area over the whole motion; leaves everything as it was
   const src=renderer.domElement, keep=plan.save(); let u=null;
   for(let i=0;i<=S;i++){
@@ -841,6 +856,7 @@ function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsi
   const tb = (mode==='torsion' || mode==='seq') ? bondById(sel && sel.type==='bond' ? sel.id : -1) : null;
   if((mode==='torsion' || mode==='seq') && !tb){ recording=false; rebuild(); return; }
   const plan0 = tb ? (mode==='seq' ? seqPlan(tb) : torsionPlan(tb)) : null;
+  const ef = exportFrame(planPivot(mode==='turn' || (!tb && settings.autoRotate) ? 'turn' : mode, tb));
   recBox = tb ? measurePlan(plan0, mode==='seq' ? 48 : 16) : measureTurn((mode==='turn' || settings.autoRotate) ? 24 : 1); // frame fits the molecule over the whole motion
   const k = Math.min(1, 1920/recBox.w);
   recCanvas = document.createElement('canvas');
@@ -850,8 +866,8 @@ function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsi
   const [m,ext] = mimes[0];
   let mr;
   try{ mr = new MediaRecorder(recCanvas.captureStream(30), {mimeType:m, videoBitsPerSecond:8e6}); }
-  catch(e){ recCanvas=recCtx=null; recording=false; rebuild(); return mimes.length>1 ? startRec(mode, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
-  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false, snap: plan0 ? plan0.save() : null};
+  catch(e){ recCanvas=recCtx=null; recording=false; ef.restore(); rebuild(); return mimes.length>1 ? startRec(mode, mimes.slice(1)) : showRecError('録画を開始できませんでした。'); }
+  const chunks = [], me = {mr, t0:performance.now(), turnLeft:null, prevRotate:settings.autoRotate, userStopped:false, snap: plan0 ? plan0.save() : null, ef};
   mr.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
   mr.onerror = () => {};
   mr.onstop = () => {
@@ -878,7 +894,7 @@ function startRec(mode, mimes){ // mode: false (free), 'turn' (one turn), 'torsi
   mr.start(500); syncRecUi();
 }
 function finishRec(r){
-  rec = null; recording = false; recCanvas = recCtx = null;
+  rec = null; recording = false; recCanvas = recCtx = null; r.ef && r.ef.restore();
   if(r.turnLeft!=null || r.restoreRotate) settings.autoRotate = r.prevRotate;
   rebuild(); renderPanel(); syncRecUi();
 }
@@ -932,10 +948,11 @@ async function exportVideo(kind){ // kind: 'turn' | 'torsion' | 'seq'. Resolves 
   if(!window.VideoEncoder || !window.VideoFrame) return false;
   gifBusy = true; syncRecUi();
   const banner = $('#recBanner'); banner.hidden = false; banner.textContent = '動画を作成中';
-  const finish = ()=>{ gifBusy = false; recording = false; banner.hidden = true; save(); rebuild(); renderPanel(); syncRecUi(); };
+  let ef = null;
+  const finish = ()=>{ ef && ef.restore(); ef = null; gifBusy = false; recording = false; banner.hidden = true; save(); rebuild(); renderPanel(); syncRecUi(); };
   try{ await loadMuxer(); }catch(e){ finish(); return false; }
   const plan = kind==='seq' ? seqPlan(tb) : kind==='torsion' ? torsionPlan(tb) : turnPlan();
-  recording = true; rebuild();
+  recording = true; rebuild(); ef = exportFrame(planPivot(kind, tb));
   const src = renderer.domElement, box = measurePlan(plan, kind==='seq' ? 48 : tb ? 16 : 24);
   const k = Math.min(1, 1920/box.w), W = Math.max(2, Math.floor(box.w*k/2)*2), H = Math.max(2, Math.floor(box.h*k/2)*2);
   const pick = await pickCodec(W, H);
@@ -1059,6 +1076,7 @@ async function makeGif(kind){
   if(kind==='seq') seqSnap = poseSave();
   gifBusy = true; recording = true; rebuild(); syncRecUi();
   const banner = $('#recBanner'); banner.hidden = false;
+  const ef = exportFrame(planPivot(kind, tb));
   try{
     if(tb) pushHistory();
     const src = renderer.domElement, box = measurePlan(plan, kind==='seq' ? 48 : tb ? 16 : 24);
@@ -1100,7 +1118,7 @@ async function makeGif(kind){
     parts.push(new Uint8Array([0x3B]));
     showGif(new Blob(parts,{type:'image/gif'}));
   }catch(e){ showRecError('透過GIFを作れませんでした。GIFの幅を小さくして試してください。'); }
-  finally{ gifBusy = false; recording = false; banner.hidden = true; save(); rebuild(); renderPanel(); syncRecUi(); }
+  finally{ ef.restore(); gifBusy = false; recording = false; banner.hidden = true; save(); rebuild(); renderPanel(); syncRecUi(); }
 }
 let lastGifUrl = null;
 function showGif(blob){
@@ -1446,12 +1464,12 @@ modal.addEventListener('click',e=>{ if(e.target===modal) modal.hidden=true; });
 let pngCanvas=null, pngBg='white';
 function renderPNG(){
   exporting=true; rebuild();
-  const pr=renderer.getPixelRatio(); renderer.setPixelRatio(Math.min(4,pr*2)); resize();
+  const ef = exportFrame(null, 2);
   renderer.render(scene,camera);
   const src=renderer.domElement, b=padBox(alphaBox(src,0.5), src), c=document.createElement('canvas'); c.width=b.w; c.height=b.h;
   const x=c.getContext('2d'); if(pngBg!=='clear'){ x.fillStyle=BG[pngBg][1]; x.fillRect(0,0,c.width,c.height); }
   renderer.render(scene,camera); x.drawImage(src,b.x,b.y,b.w,b.h,0,0,b.w,b.h);
-  renderer.setPixelRatio(pr); resize(); exporting=false; rebuild();
+  ef.restore(); exporting=false; rebuild();
   pngCanvas=c; return c.toDataURL('image/png');
 }
 $('#png').onclick = ()=>{
