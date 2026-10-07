@@ -63,8 +63,23 @@ select.btn{padding-right:6px}
 .modal video{max-width:100%;max-height:60vh;justify-self:center;border:1px solid var(--line);border-radius:8px;background:#000}
 .mode-banner{position:absolute;top:10px;right:12px;background:var(--accent);color:var(--accent-ink);font-size:12px;padding:4px 10px;border-radius:6px}
 aside.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;min-height:0}
-section.sec{padding:14px 16px;border-bottom:1px solid var(--line);display:grid;gap:10px}
-section.sec h2{margin:0;font-size:11.5px;letter-spacing:.12em;color:var(--muted);font-weight:500}
+.sec{padding:14px 16px;border-bottom:1px solid var(--line);display:grid;gap:10px}
+.sec h2{margin:0;font-size:11.5px;letter-spacing:.12em;color:var(--muted);font-weight:500}
+.tabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+.tabs button{border:1px solid transparent;background:none;border-radius:7px;padding:7px 4px;font-size:13px;cursor:pointer;color:var(--muted)}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:500}
+details.fold>summary{cursor:pointer;list-style:none;font-size:11.5px;letter-spacing:.12em;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:6px}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::before{content:"▸";font-size:10px;transition:transform .15s}
+details.fold[open]>summary::before{transform:rotate(90deg)}
+details.fold{display:block}
+.foldbody{display:grid;gap:10px;margin-top:10px}
+.sumnote{letter-spacing:0;color:var(--ink);font-size:12px;margin-left:auto}
+details.more{border:1px dashed var(--line);border-radius:8px;padding:6px 10px;width:100%}
+details.more>summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
+.morebody{display:grid;gap:8px;margin-top:8px}
+.linkbtn{border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;cursor:pointer;font-size:inherit}
 .note{margin:0;color:var(--muted);font-size:12.5px;line-height:1.6}
 .note b{color:var(--ink);font-weight:500}
 .kits{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
@@ -135,7 +150,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v22</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v23</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -186,6 +201,13 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
   </main>
 
   <aside class="panel">
+    <nav class="tabs" role="tablist" aria-label="パネルの切り替え">
+      <button role="tab" data-tab="build">作る</button>
+      <button role="tab" data-tab="look">見た目</button>
+      <button role="tab" data-tab="motion">動きと録画</button>
+    </nav>
+
+    <div class="pane" data-pane="build" role="tabpanel">
     <section class="sec">
       <h2>追加</h2>
       <p class="note" id="addTarget"></p>
@@ -221,8 +243,67 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
       <div class="field"><span class="lab">結合次数</span><div class="seg" id="bondOrder"></div></div>
       <div class="field"><label for="bondLenOne">長さ</label><input type="range" id="bondLenOne" min="0.8" max="6" step="0.01"><output id="bondLenOneOut"></output></div>
       <p class="note">長さを変えると、結合の先にある部分がまとめて移動します。</p>
-      <div class="btnrow"><button class="btn" id="bondH" title="この結合が画面の水平になるように向きを変える">⟷ 水平に向ける</button><button class="btn" id="bondV" title="この結合が画面の垂直になるように向きを変える">↕ 垂直に向ける</button><button class="btn" id="bondAxis" title="この結合を軸にして分子全体を回転させる">⟳ この結合を回転軸にする</button><button class="btn" id="bondPerp" title="この結合に垂直な軸のまわりに分子全体を回転させる">⊥ この結合に垂直な軸で回す</button><button class="btn danger" id="delBond">結合を切る</button></div>
-      <h3 class="subh">ねじれ（結合のまわりで片側だけ回す）</h3>
+      <div class="btnrow"><button class="btn" id="bondH" title="この結合が画面の水平になるように向きを変える">⟷ 水平に向ける</button><button class="btn" id="bondV" title="この結合が画面の垂直になるように向きを変える">↕ 垂直に向ける</button><button class="btn danger" id="delBond">結合を切る</button></div>
+      <p class="note">ねじれや、この結合を軸にした回転は <button class="linkbtn" data-goto="motion">動きと録画</button> にあります。</p>
+    </section>
+    </div>
+
+    <div class="pane" data-pane="look" role="tabpanel" hidden>
+    <section class="sec">
+      <h2>全体の表示</h2>
+      <div class="field"><label for="bondLen">標準結合長</label><input type="range" id="bondLen" min="1" max="5" step="0.01"><output id="bondLenOut"></output></div>
+      <div class="field"><label for="bondRad">結合の太さ</label><input type="range" id="bondRad" min="0.03" max="0.35" step="0.005"><output id="bondRadOut"></output></div>
+      <div class="field"><span class="lab">結合の色</span><div class="swatches" id="bondSwatches"></div></div>
+      <div class="field"><span class="lab">結合の質感</span><div class="seg" id="bondTex"></div></div>
+      <div class="field"><span class="lab">背景</span><div class="seg" id="bgSeg"></div></div>
+      <label class="check"><input type="checkbox" id="showChiral"> キラル中心に印をつける</label>
+      <div class="btnrow"><button class="btn" id="tidyAll">全体を整列</button></div>
+    </section>
+    </div>
+
+    <div class="pane" data-pane="motion" role="tabpanel" hidden>
+    <section class="sec">
+      <h2>録画</h2>
+      <div class="field"><span class="lab">録画の形式</span><div class="seg" id="recFormat"></div></div>
+      <div class="field" id="gifSizeRow"><span class="lab">GIFの幅</span><div class="seg" id="gifSize"></div></div>
+      <p class="note" id="recNote"></p>
+    </section>
+
+    <details class="sec fold" open>
+      <summary>回転</summary>
+      <div class="foldbody">
+      <label class="check"><input type="checkbox" id="autoRot"> 自動で回転させる</label>
+      <div class="field"><label for="rotPeriod">1回転</label><input type="range" id="rotPeriod" min="3" max="40" step="1"><output id="rotPeriodOut"></output></div>
+      <div class="field"><span class="lab">向き</span><div class="seg" id="rotDir"></div></div>
+      <div class="field"><span class="lab">回転軸</span><div class="seg" id="rotAxis"></div></div>
+      <p class="note" id="axisNote"></p>
+      <div id="axisOpts" class="btnrow" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div class="btnrow" id="axisAlignRow"><button class="btn" id="axisH" title="回転軸の結合が画面の水平になるように向きを変える">⟷ 軸を水平に向ける</button><button class="btn" id="axisV" title="回転軸の結合が画面の垂直になるように向きを変える">↕ 軸を垂直に向ける</button></div>
+        <div class="field" style="width:100%" id="perpRow"><span class="lab">回す軸</span><div class="seg" id="perpSeg"></div></div>
+        <p class="note" id="perpNote"></p>
+        <label class="check"><input type="checkbox" id="showAxis"> 軸を点線で表示する</label>
+        <details class="more"><summary>角度を指定して回す</summary>
+          <div class="morebody">
+        <div class="field" style="width:100%" id="tumbleRow"><label for="tumbleDeg">垂直軸で</label><div class="seg"><input type="number" class="num" id="tumbleDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="tumbleGo">回す</button><button id="tumbleTo">この角度にする</button></div></div>
+        <div class="field" style="width:100%"><label for="spinDeg">結合軸で</label><div class="seg"><input type="number" class="num" id="spinDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="spinGo">回す</button><button id="spinTo">この角度にする</button></div></div>
+        <p class="note" id="spinNow"></p>
+            <button class="btn" id="resetSpin">軸を選んだときの向きに戻す</button>
+          </div>
+        </details>
+      </div>
+      <div class="btnrow"><button class="btn rec" id="recTurn" title="ちょうど1回転する動画を録画">● 1回転を録画</button></div>
+      </div>
+    </details>
+
+    <section class="sec" id="motionHint">
+      <h2>ねじれ・連続アニメーション</h2>
+      <p class="note">結合をクリックして選ぶと、ここでねじれや連続アニメーションが使えます。</p>
+    </section>
+
+    <details class="sec fold" id="secTwist" open>
+      <summary>ねじれ<span class="sumnote" id="twistBond"></span></summary>
+      <div class="foldbody">
+      <div class="btnrow"><button class="btn" id="bondAxis" title="この結合を軸にして分子全体を回転させる">⟳ この結合を回転軸にする</button><button class="btn" id="bondPerp" title="この結合に垂直な軸のまわりに分子全体を回転させる">⊥ 垂直な軸で回す</button></div>
       <p class="note" id="torsionInfo"></p>
       <div id="torsionCtl">
         <div class="field"><span class="lab">少し回す</span><div class="seg" id="torsionNudge"></div></div>
@@ -234,46 +315,20 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <p class="note" id="torsionLoopNote"></p>
         <div class="btnrow" style="margin-top:8px"><button class="btn primary" id="torsionPlay">▶ ねじれアニメーション</button><button class="btn rec" id="torsionRec">● アニメーションを録画</button></div>
       </div>
-      <h3 class="subh">連続アニメーション（この結合で）</h3>
+
+      </div>
+    </details>
+
+    <details class="sec fold" id="secSeq">
+      <summary>連続アニメーション</summary>
+      <div class="foldbody">
       <p class="note" id="seqNote">この結合を使って、上の手順から順に動かします。「垂直軸」は、その手順が始まるときの画面の縦・横・奥行きの向きを、結合に垂直になるようにとります。</p>
       <div id="seqList" class="seqlist"></div>
       <div class="btnrow"><button class="btn" id="seqAdd">＋ 手順を追加</button><button class="btn" id="seqDefault">はじめの手順に戻す</button></div>
       <div class="btnrow"><button class="btn primary" id="seqPlay">▶ 連続再生</button><button class="btn" id="seqBack" title="連続再生する前の形と向きに戻す">↺ 再生前に戻す</button><button class="btn rec" id="seqRec">● 連続アニメーションを録画</button></div>
-    </section>
-
-    <section class="sec">
-      <h2>全体の表示</h2>
-      <div class="field"><label for="bondLen">標準結合長</label><input type="range" id="bondLen" min="1" max="5" step="0.01"><output id="bondLenOut"></output></div>
-      <div class="field"><label for="bondRad">結合の太さ</label><input type="range" id="bondRad" min="0.03" max="0.35" step="0.005"><output id="bondRadOut"></output></div>
-      <div class="field"><span class="lab">結合の色</span><div class="swatches" id="bondSwatches"></div></div>
-      <div class="field"><span class="lab">結合の質感</span><div class="seg" id="bondTex"></div></div>
-      <div class="field"><span class="lab">背景</span><div class="seg" id="bgSeg"></div></div>
-      <label class="check"><input type="checkbox" id="showChiral"> キラル中心に印をつける</label>
-      <div class="btnrow"><button class="btn" id="tidyAll">全体を整列</button></div>
-    </section>
-
-    <section class="sec">
-      <h2>自動回転と録画</h2>
-      <label class="check"><input type="checkbox" id="autoRot"> 自動で回転させる</label>
-      <div class="field"><label for="rotPeriod">1回転</label><input type="range" id="rotPeriod" min="3" max="40" step="1"><output id="rotPeriodOut"></output></div>
-      <div class="field"><span class="lab">向き</span><div class="seg" id="rotDir"></div></div>
-      <div class="field"><span class="lab">回転軸</span><div class="seg" id="rotAxis"></div></div>
-      <p class="note" id="axisNote"></p>
-      <div id="axisOpts" class="btnrow" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <div class="btnrow" id="axisAlignRow"><button class="btn" id="axisH" title="回転軸の結合が画面の水平になるように向きを変える">⟷ 軸を水平に向ける</button><button class="btn" id="axisV" title="回転軸の結合が画面の垂直になるように向きを変える">↕ 軸を垂直に向ける</button></div>
-        <div class="field" style="width:100%" id="perpRow"><span class="lab">回す軸</span><div class="seg" id="perpSeg"></div></div>
-        <p class="note" id="perpNote"></p>
-        <label class="check"><input type="checkbox" id="showAxis"> 軸を点線で表示する</label>
-        <div class="field" style="width:100%" id="tumbleRow"><label for="tumbleDeg">垂直軸で</label><div class="seg"><input type="number" class="num" id="tumbleDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="tumbleGo">回す</button><button id="tumbleTo">この角度にする</button></div></div>
-        <div class="field" style="width:100%"><label for="spinDeg">結合軸で</label><div class="seg"><input type="number" class="num" id="spinDeg" min="-720" max="720" step="1" value="90"><span class="unit">°</span><button id="spinGo">回す</button><button id="spinTo">この角度にする</button></div></div>
-        <p class="note" id="spinNow"></p>
-        <button class="btn" id="resetSpin">軸を選んだときの向きに戻す</button>
       </div>
-      <div class="field"><span class="lab">録画の形式</span><div class="seg" id="recFormat"></div></div>
-      <div class="field" id="gifSizeRow"><span class="lab">GIFの幅</span><div class="seg" id="gifSize"></div></div>
-      <div class="btnrow"><button class="btn rec" id="recTurn" title="ちょうど1回転する動画を録画">● 1回転を録画</button></div>
-      <p class="note" id="recNote"></p>
-    </section>
+    </details>
+    </div>
   </aside>
 </div>
 
@@ -315,7 +370,7 @@ const ROOT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55,0.35,-0.
 
 /* ---------- state ---------- */
 let state = {nodes:[],bonds:[]};
-let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisDir:'v',perpAxis:'y',showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false,torsionLoop:'none',seq:null};
+let settings = {bondLen:2.4,bondRad:0.11,bondColor:'#8d939c',bondTex:'metal',bg:'white',showChiral:true,autoRotate:false,rotPeriod:12,rotDir:1,rotAxis:'view',rotBond:null,axisDir:'v',perpAxis:'y',showAxis:true,recFormat:'video',gifWidth:480,torsionAngle:180,torsionDur:3,torsionFlip:false,torsionLoop:'none',uiTab:'build',seq:null};
 const SEQ_DEFAULT = [{k:'spin',deg:360,sec:4},{k:'twist',deg:180,sec:3},{k:'perp',deg:360,sec:4,ax:'y'}];
 let sel = null, addColor = 'auto', bondMode = false, bondFrom = null;
 let undoStack = [], redoStack = [];
@@ -1204,10 +1259,29 @@ function segRow(el, entries, current, onPick){
 }
 $('#selShape').innerHTML = Object.entries(SHAPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
 
+/* sidebar tabs: 作る (build) / 見た目 (look) / 動きと録画 (motion) */
+let lastSelKey = '';
+function showTab(t){
+  if(!document.querySelector(`.pane[data-pane="${t}"]`)) t = 'build';
+  settings.uiTab = t;
+  document.querySelectorAll('.pane').forEach(p=>p.hidden = p.dataset.pane!==t);
+  document.querySelectorAll('.tabs [data-tab]').forEach(b=>{ const on = b.dataset.tab===t; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); b.tabIndex = on ? 0 : -1; });
+}
+document.querySelectorAll('.tabs [data-tab]').forEach(b=>b.onclick = ()=>{ showTab(b.dataset.tab); save(); document.querySelector('aside.panel').scrollTop = 0; });
+document.querySelector('.tabs').addEventListener('keydown', e=>{ // arrow keys move between tabs
+  const tabs = [...document.querySelectorAll('.tabs [data-tab]')], i = tabs.findIndex(b=>b.dataset.tab===settings.uiTab);
+  const j = e.key==='ArrowRight' ? (i+1)%tabs.length : e.key==='ArrowLeft' ? (i+tabs.length-1)%tabs.length : -1;
+  if(j<0) return; e.preventDefault(); showTab(tabs[j].dataset.tab); save(); tabs[j].focus(); });
+document.querySelectorAll('[data-goto]').forEach(b=>b.onclick = ()=>{ showTab(b.dataset.goto); save(); document.querySelector('aside.panel').scrollTop = 0; });
 function renderPanel(){
   const n = sel && sel.type==='node' ? nodeById(sel.id) : null;
   const b = sel && sel.type==='bond' ? bondById(sel.id) : null;
   $('#secNode').hidden = !n; $('#secBond').hidden = !b; $('#secNone').hidden = !!(n||b);
+  $('#secTwist').hidden = !b; $('#secSeq').hidden = !b; $('#motionHint').hidden = !!b;
+  $('#twistBond').textContent = b ? `${nodeName(nodeById(b.a))}–${nodeName(nodeById(b.b))}` : '';
+  const sk = sel ? sel.type+sel.id : ''; // picking something while "見た目" is open brings its settings into view
+  if(sk && sk!==lastSelKey && settings.uiTab==='look') showTab('build');
+  lastSelKey = sk;
   $('#addTarget').innerHTML = n ? `選択中の<b>${SHAPES[n.shape]}</b>に結合して追加します。空いている方向に自動で配置されます。` : '何も選択していないので、離れた位置に新しく置きます。形を選ぶとその形に結合します。';
   swatchRow($('#addSwatches'), PALETTE, addColor, c=>{addColor=c; renderPanel();}, true);
   if(n){
@@ -1543,6 +1617,7 @@ function loadSample(v){
 let loaded=false;
 try{ const s=localStorage.getItem(STORE); if(s){ restore(s); loaded = state.nodes.length>0; } }catch(e){}
 settings.autoRotate = false; // auto-rotation is always off when the page opens
+showTab(settings.uiTab);
 if(!loaded) loadSample('ref');
 syncNid(); applyBg(); resize(); rebuild(); renderPanel(); banner();
 requestAnimationFrame(()=>{ resize(); fitView(); });
