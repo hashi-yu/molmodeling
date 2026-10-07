@@ -135,7 +135,7 @@ input[type=color]{width:26px;height:24px;border:1px solid var(--line);border-rad
         <polygon points="7,22 13,28 7,33 1,28" fill="#2f9a46"/><rect x="24" y="23" width="8" height="8" fill="#dfa31f"/>
         <circle cx="17" cy="17" r="5" fill="#151515"/>
       </svg>
-      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v21</small></div>
+      <div><h1>骨格モデラー</h1><small>Abstract skeleton modeler · v22</small></div>
     </div>
     <div class="tools">
       <select class="btn" id="sample" aria-label="サンプルを読み込む">
@@ -976,8 +976,7 @@ async function exportVideo(kind){ // kind: 'turn' | 'torsion' | 'seq'. Resolves 
     const frames = plan.loop ? N : N+1; // a loop leaves out the closing frame, which equals the first
     const hold0 = plan.loop ? 0 : Math.round(0.5*VFPS), hold1 = plan.loop ? 0 : Math.round(0.7*VFPS); // a one-way motion shows its two end states for a moment
     let idx = 0;
-    const put = async()=>{
-      cx.fillStyle = BG[settings.bg][1]; cx.fillRect(0,0,W,H); cx.drawImage(src, box.x, box.y, box.w, box.h, 0, 0, W, H);
+    const put = async()=>{ // encode what is on cv now (cv is filled right after each render: the WebGL canvas is wiped once we yield)
       const vf = new VideoFrame(cv, {timestamp:Math.round(idx*1e6/VFPS), duration:Math.round(1e6/VFPS)});
       enc.encode(vf, {keyFrame: idx%(VFPS*2)===0}); vf.close(); idx++;
       while(enc.encodeQueueSize > 6) await new Promise(r=>setTimeout(r, 1));
@@ -985,6 +984,7 @@ async function exportVideo(kind){ // kind: 'turn' | 'torsion' | 'seq'. Resolves 
     };
     for(let f=0; f<frames; f++){
       renderer.render(scene, camera);
+      cx.fillStyle = BG[settings.bg][1]; cx.fillRect(0,0,W,H); cx.drawImage(src, box.x, box.y, box.w, box.h, 0, 0, W, H);
       const reps = 1 + (f===0 ? hold0 : 0) + (f===frames-1 ? hold1 : 0);
       for(let r=0; r<reps; r++) await put();
       if(f<frames-1 || plan.loop) plan.advance(1/N); // a loop ends back where it started
